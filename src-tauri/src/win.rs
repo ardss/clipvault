@@ -616,6 +616,48 @@ mod tests {
     }
 }
 
+
+/// True when the current clipboard was flagged sensitive by the copying app
+/// (Bitwarden / 1Password / KeePass / browsers set these on password copies).
+/// - "ExcludeClipboardContentFromMonitorProcessing": presence alone = exclude
+/// - "CanIncludeInClipboardHistory": DWORD 0 = exclude
+pub fn clipboard_marked_sensitive() -> bool {
+    let reg = |name: &str| -> u32 {
+        let n = name.encode_utf16().chain(std::iter::once(0)).collect::<Vec<u16>>();
+        unsafe { RegisterClipboardFormatW(PCWSTR(n.as_ptr())) }
+    };
+    unsafe {
+        let excl = reg("ExcludeClipboardContentFromMonitorProcessing");
+        if excl != 0 && IsClipboardFormatAvailable(excl).is_ok() {
+            return true;
+        }
+        let can = reg("CanIncludeInClipboardHistory");
+        if can == 0 || IsClipboardFormatAvailable(can).is_err() {
+            return false;
+        }
+        if !open_clipboard_retry() {
+            return false;
+        }
+        let h = match GetClipboardData(can) {
+            Ok(h) => h,
+            Err(_) => {
+                let _ = CloseClipboard();
+                return false;
+            }
+        };
+        let hg = HGLOBAL(h.0);
+        let ptr = GlobalLock(hg) as *const u32;
+        if ptr.is_null() {
+            let _ = CloseClipboard();
+            return false;
+        }
+        let v = *ptr;
+        let _ = GlobalUnlock(hg);
+        let _ = CloseClipboard();
+        v == 0 // 0 = the app asked to be excluded from history
+    }
+}
+
 // ---------- files (CF_HDROP) ----------
 
 pub const CF_HDROP: u32 = 15;

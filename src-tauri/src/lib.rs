@@ -79,9 +79,16 @@ fn handle_clipboard_change(app: &AppHandle) {
     if win::is_self_write() {
         return;
     }
-    // writers fire the update before all formats are on the clipboard;
-    // give them a moment, then read (DB dedup absorbs repeats)
-    std::thread::sleep(Duration::from_millis(120));
+    // password managers flag sensitive copies — never record those. Writers
+    // put formats on the clipboard in steps, so re-check a few times before
+    // trusting a "not flagged" result
+    for _ in 0..3 {
+        if win::clipboard_marked_sensitive() {
+            eprintln!("[cv] sensitive clipboard content skipped");
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(120));
+    }
     let st = app.state::<db::Db>();
     let conn = st.0.lock().unwrap_or_else(|p| p.into_inner());
     let limit = app.state::<SettingsState>().0.lock().unwrap_or_else(|p| p.into_inner()).history_limit;
