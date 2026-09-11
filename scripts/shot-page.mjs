@@ -13,7 +13,7 @@ const browser = await chromium.launch({
   headless: true,
 })
 const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 2 })
-await page.goto(pathToFileURL(target).href, { waitUntil: 'networkidle' })
+await page.goto(pathToFileURL(target).href, { waitUntil: 'load' })
 await page.waitForTimeout(400)
 await page.screenshot({ path: out, fullPage: true })
 // layout metrics for objective QA
