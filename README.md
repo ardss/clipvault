@@ -1,5 +1,8 @@
 # ClipVault
 
+[![Release](https://img.shields.io/github/v/release/ardss/clipvault)](https://github.com/ardss/clipvault/releases)
+[![License](https://img.shields.io/github/license/ardss/clipvault)](LICENSE)
+
 **Win+V 官方增强版——好看、清爽、极简的 Windows 剪贴板历史管理器。**
 
 `Alt+V` 呼出 → 搜索 → 点击粘贴回原窗口。纯本地运行，零网络、零账号、零遥测。

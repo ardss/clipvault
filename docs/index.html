@@ -8,7 +8,7 @@
 <style>
 :root {
   --bg: #0e0f12; --bg2: #141519; --card: #191b20; --fg: #eceded; --dim: #a3a5ac;
-  --dim2: #6f727a; --accent: #4c8dff; --accent2: #6fa3ff; --border: #26282f;
+  --dim2: #6f727a; --accent: #e8b84b; --accent2: #f0cc7a; --border: #26282f;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html { scroll-behavior: smooth; }
@@ -24,7 +24,7 @@ nav { position: sticky; top: 0; backdrop-filter: blur(14px);
 nav .wrap { display: flex; align-items: center; height: 58px; }
 .brand { display: flex; align-items: center; gap: 9px; font-weight: 650; font-size: 15px; }
 .brand .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent);
-  box-shadow: 0 0 12px rgba(76,141,255,.8); }
+  box-shadow: 0 0 12px rgba(232,184,75,.7); }
 nav .links { display: flex; gap: 22px; margin-left: auto; font-size: 13.5px;
   color: var(--dim); align-items: center; }
 nav .links a:hover { color: var(--fg); }
@@ -47,8 +47,8 @@ h1 .accent { color: var(--accent); }
 .cta { display: flex; gap: 16px; justify-content: center; margin-top: 6px; }
 .btn { display: inline-flex; align-items: center; gap: 9px; padding: 13px 30px;
   border-radius: 11px; font-size: 15px; font-weight: 550; }
-.btn.primary { background: var(--accent); color: #fff;
-  box-shadow: 0 8px 28px rgba(76,141,255,.35); }
+.btn.primary { background: var(--accent); color: #1a1608;
+  box-shadow: 0 8px 28px rgba(232,184,75,.3); }
 .btn.primary:hover { background: var(--accent2); transform: translateY(-1px); }
 .btn.ghost { border: 1px solid var(--border); color: var(--fg); background: var(--bg2); }
 .btn.ghost:hover { border-color: var(--dim2); }
@@ -68,7 +68,7 @@ h1 .accent { color: var(--accent); }
 /* features */
 section.features { padding: 84px 0 72px; position: relative; }
 section.features::before { content: ''; position: absolute; inset: 0;
-  background: linear-gradient(180deg, transparent, rgba(76,141,255,.05) 50%, transparent);
+  background: linear-gradient(180deg, transparent, rgba(232,184,75,.04) 50%, transparent);
   pointer-events: none; }
 .h2row { text-align: center; margin-bottom: 48px; position: relative; }
 h2 { font-size: 30px; letter-spacing: -.5px; }
@@ -79,10 +79,14 @@ h2 { font-size: 30px; letter-spacing: -.5px; }
 .f:hover { border-color: #34373f; }
 .f .ic { width: 42px; height: 42px; border-radius: 11px; display: flex;
   align-items: center; justify-content: center; margin-bottom: 18px;
-  background: rgba(76,141,255,.14); color: var(--accent2); }
+  background: rgba(232,184,75,.12); color: var(--accent); }
 .f .ic svg { width: 22px; height: 22px; }
 .f h3 { font-size: 15.5px; margin-bottom: 8px; font-weight: 600; }
 .f p { font-size: 13.5px; color: var(--dim); line-height: 1.7; }
+
+.krow { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 0; }
+.krow + .krow { border-top: 1px dashed var(--border); }
+.kdesc { font-size: 12.5px; color: var(--dim); text-align: right; }
 
 footer { padding: 44px 0 56px; text-align: center; color: var(--dim2); font-size: 12.5px;
   border-top: 1px solid var(--border); }
@@ -174,6 +178,31 @@ footer .loc { margin-top: 6px; opacity: .8; }
   </div>
 </div></section>
 
+<section class="wrap" style="padding-top: 8px;">
+  <div class="h2row">
+    <h2 data-i18n="keys_h">键盘优先</h2>
+    <p data-i18n="keys_sub">手不离键盘的人，用这些就够了</p>
+  </div>
+  <div class="grid" style="grid-template-columns: 1fr 1fr;">
+    <div class="f" style="padding: 18px 20px;">
+      <div class="krow"><span class="kbd2">Alt + V</span><span class="kdesc" data-i18n="k1">呼出 / 隐藏面板</span></div>
+      <div class="krow"><span class="kbd2">搜索框</span><span class="kdesc" data-i18n="k2">打字即搜，自动定位</span></div>
+      <div class="krow"><span class="kbd2">↑ / ↓</span><span class="kdesc" data-i18n="k3">在条目间移动</span></div>
+      <div class="krow"><span class="kbd2">Enter</span><span class="kdesc" data-i18n="k4">粘贴选中项</span></div>
+      <div class="krow"><span class="kbd2">Del</span><span class="kdesc" data-i18n="k5">删除选中项</span></div>
+      <div class="krow"><span class="kbd2">Esc</span><span class="kdesc" data-i18n="k6">清空搜索 / 关闭面板</span></div>
+    </div>
+    <div class="f" style="padding: 18px 20px;">
+      <div class="krow"><span style="font-weight:600;">Win+V</span><span class="kdesc" data-i18n="c1">重启丢历史，上限 25 条</span></div>
+      <div class="krow"><span style="font-weight:600;">ClipVault</span><span class="kdesc" data-i18n="c2">历史持久保存，默认 500 条可调</span></div>
+      <div class="krow"><span style="font-weight:600;">Win+V</span><span class="kdesc" data-i18n="c3">无搜索、无分类、无置顶</span></div>
+      <div class="krow"><span style="font-weight:600;">ClipVault</span><span class="kdesc" data-i18n="c4">全文搜索、分类筛选、置顶豁免清理</span></div>
+      <div class="krow"><span style="font-weight:600;">Win+V</span><span class="kdesc" data-i18n="c5">系统自带，零配置</span></div>
+      <div class="krow"><span style="font-weight:600;">ClipVault</span><span class="kdesc" data-i18n="c6">5MB 安装包，装完即用</span></div>
+    </div>
+  </div>
+</section>
+
 <footer class="wrap">
   <p>ClipVault · Tauri 2 + Vue 3 + Rust · <a href="https://github.com/ardss/clipvault">GitHub</a> · MIT License</p>
   <p class="loc" data-i18n="foot_local">ClipVault 没有任何联网功能，你的数据只在你硬盘上。</p>
@@ -196,6 +225,12 @@ const I18N = {
     f5h: 'See what you copy the most', f5p: 'Local-only stats, mostly for fun. Also tells you what your week looked like.',
     f6h: 'Works right after install', f6p: '5MB installer, no dependencies. English and Chinese UI, dark and light themes.',
     foot_local: 'ClipVault has no network features at all. Your data stays on your disk.',
+    keys_h: 'Keyboard first', keys_sub: 'For people who never leave the keyboard',
+    k1: 'Show / hide the panel', k2: 'Type to search instantly', k3: 'Move between items',
+    k4: 'Paste the selected item', k5: 'Delete the selected item', k6: 'Clear search / close panel',
+    c1: 'History lost on reboot, capped at 25', c2: 'History persists, 500 by default (adjustable)',
+    c3: 'No search, no categories, no pinning', c4: 'Full-text search, categories, pin-protected cleanup',
+    c5: 'Built into Windows, zero setup', c6: '5MB installer, works right away',
   }
 }
 function applyLang(l) {

@@ -1,27 +1,32 @@
+/* Vault theme: dark archive list + warm amber accents (per external design review) */
 :root {
-  --bg: #1e1f22;
-  --bg-2: #2a2b30;
-  --bg-hover: #33353b;
+  --bg: #101114;
+  --bg-2: #1c1f26;
+  --bg-hover: #262a32;
   --fg: #e8e9ec;
   --fg-dim: #9a9ca3;
-  --accent: #4c8dff;
-  --pin: #f5b83d;
-  --border: #3a3c42;
+  --accent: #e8b84b;
+  --accent-dim: rgba(232, 184, 75, .4);
+  --pin: #e8b84b;
+  --border: #2a2d35;
   --danger: #e5697a;
-  --radius: 10px;
+  --radius: 8px;
 }
 :root[data-theme='light'] {
-  --bg: #f6f7f9;
-  --bg-2: #ffffff;
-  --bg-hover: #eceef2;
-  --fg: #1c1e22;
-  --fg-dim: #6b6f78;
-  --border: #dfe2e8;
+  --bg: #f7f5f0;          /* warm paper */
+  --bg-2: #fffdf8;
+  --bg-hover: #efece4;
+  --fg: #26241f;
+  --fg-dim: #6f6c63;
+  --accent: #c99a2e;
+  --accent-dim: rgba(201, 154, 46, .4);
+  --pin: #c99a2e;
+  --border: #e2ded4;
 }
 * { box-sizing: border-box; user-select: none; }
 html, body, #app { height: 100%; margin: 0; overflow: hidden; }
 body {
-  font-family: 'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei UI', sans-serif;
+  font-family: Inter, 'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei UI', 'PingFang SC', sans-serif;
   font-size: 13px;
   background: var(--bg);
   color: var(--fg);
