@@ -467,7 +467,7 @@ onBeforeUnmount(() => {
 .icon-btn.pin.on { color: var(--pin); }
 .icon-btn.del:hover { color: var(--danger); }
 .stats { padding: 4px 8px; }
-.stat-grid { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 6px; }
+.stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .stat-card { background: var(--bg-2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 4px; text-align: center; }
 .stat-card .num { font-size: 16px; font-weight: 600; color: var(--accent); }
 .stat-card .lbl { font-size: 10px; color: var(--fg-dim); margin-top: 2px; }
