@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ClipVault — Win+V 官方增强版</title>
+<style>
+  :root { --bg:#1e1f22; --bg2:#2a2b30; --fg:#e8e9ec; --dim:#9a9ca3; --accent:#4c8dff; }
+  * { box-sizing:border-box; margin:0; }
+  body { background:var(--bg); color:var(--fg);
+    font-family:'Segoe UI Variable Text','Segoe UI','Microsoft YaHei UI',sans-serif;
+    display:flex; min-height:100vh; align-items:center; justify-content:center; padding:32px; }
+  .wrap { display:flex; gap:48px; max-width:900px; align-items:center; flex-wrap:wrap; }
+  img { width:320px; border-radius:12px; box-shadow:0 12px 40px rgba(0,0,0,.5); }
+  h1 { font-size:28px; margin-bottom:8px; }
+  .tag { color:var(--dim); font-size:14px; margin-bottom:20px; }
+  .feat { list-style:none; margin:16px 0 24px; }
+  .feat li { padding:5px 0; font-size:14px; color:var(--fg); }
+  .feat li::before { content:''; display:inline-block; width:6px; height:6px;
+    border-radius:50%; background:var(--accent); margin-right:10px; }
+  a.btn { display:inline-block; background:var(--accent); color:#fff; text-decoration:none;
+    padding:10px 22px; border-radius:8px; font-size:14px; margin-right:10px; }
+  a.btn.ghost { background:transparent; border:1px solid #3a3c42; color:var(--fg); }
+  .meta { margin-top:20px; font-size:12px; color:var(--dim); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <img src="images/panel-dark.png" alt="ClipVault 面板">
+  <div>
+    <h1>ClipVault</h1>
+    <p class="tag">Win+V 官方增强版 —— 好看、清爽、极简</p>
+    <ul class="feat">
+      <li>文本 / 图片 / 文件 / 富文本 / 链接，无限历史</li>
+      <li>Alt+V 呼出，点击直接粘贴回原窗口</li>
+      <li>搜索、置顶、分类筛选、键盘操作</li>
+      <li>悬停预览完整内容，可划选复制片段</li>
+      <li>深浅色主题 · 中英文 · 使用统计</li>
+      <li>纯本地：零网络、零账号、零遥测</li>
+    </ul>
+    <a class="btn" href="https://github.com/ardss/clipvault/releases">下载</a>
+    <a class="btn ghost" href="https://github.com/ardss/clipvault">GitHub</a>
+    <p class="meta">MIT License · Tauri 2 + Vue 3 + Rust</p>
+  </div>
+</div>
+</body>
+</html>

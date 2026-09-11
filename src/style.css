@@ -1,0 +1,28 @@
+:root {
+  --bg: #1e1f22;
+  --bg-2: #2a2b30;
+  --bg-hover: #33353b;
+  --fg: #e8e9ec;
+  --fg-dim: #9a9ca3;
+  --accent: #4c8dff;
+  --pin: #f5b83d;
+  --border: #3a3c42;
+  --danger: #e5697a;
+  --radius: 10px;
+}
+:root[data-theme='light'] {
+  --bg: #f6f7f9;
+  --bg-2: #ffffff;
+  --bg-hover: #eceef2;
+  --fg: #1c1e22;
+  --fg-dim: #6b6f78;
+  --border: #dfe2e8;
+}
+* { box-sizing: border-box; user-select: none; }
+html, body, #app { height: 100%; margin: 0; overflow: hidden; }
+body {
+  font-family: 'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei UI', sans-serif;
+  font-size: 13px;
+  background: var(--bg);
+  color: var(--fg);
+}
