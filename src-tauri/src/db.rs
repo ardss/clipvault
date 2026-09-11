@@ -121,9 +121,11 @@ pub fn upsert_text(conn: &Connection, content: &str) -> Result<Option<i64>, Stri
     if preview.trim().is_empty() {
         return Ok(None);
     }
+    // same content may already exist as 'text' or as 'html' (rich copy) —
+    // user-visible rule: one entry per unique content
     if let Some(id) = conn
         .query_row(
-            "SELECT id FROM clips WHERE kind='text' AND content=?1",
+            "SELECT id FROM clips WHERE content=?1 AND kind IN ('text','html')",
             [content],
             |r| r.get::<_, i64>(0),
         )
@@ -351,9 +353,10 @@ pub fn upsert_html(conn: &Connection, plain: &str, html: &[u8]) -> Result<Option
     if plain.len() > 300 {
         preview.push('…');
     }
+    // a plain-text entry with the same content gets upgraded to rich text
     let dup: Option<i64> = conn
         .query_row(
-            "SELECT id FROM clips WHERE kind='html' AND content=?1",
+            "SELECT id FROM clips WHERE content=?1 AND kind IN ('text','html')",
             [plain],
             |r| r.get::<_, i64>(0),
         )
@@ -361,7 +364,7 @@ pub fn upsert_html(conn: &Connection, plain: &str, html: &[u8]) -> Result<Option
         .unwrap_or(None);
     if let Some(id) = dup {
         conn.execute(
-            "UPDATE clips SET use_count=use_count+1, created_at=?2, html=?3 WHERE id=?1",
+            "UPDATE clips SET kind='html', use_count=use_count+1, created_at=?2, html=?3 WHERE id=?1",
             rusqlite::params![id, now(), html],
         )
         .map_err(|e| e.to_string())?;
@@ -395,4 +398,40 @@ pub fn get_html(conn: &Connection, id: i64) -> Result<(String, Vec<u8>), String>
         },
     )
     .map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod dedup_tests {
+    use super::*;
+
+    fn mem() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE clips(
+               id INTEGER PRIMARY KEY AUTOINCREMENT,
+               kind TEXT NOT NULL, content TEXT, image_path TEXT, html BLOB,
+               files TEXT, preview TEXT NOT NULL,
+               pinned INTEGER NOT NULL DEFAULT 0,
+               use_count INTEGER NOT NULL DEFAULT 0,
+               created_at INTEGER NOT NULL);",
+        )
+        .unwrap();
+        conn
+    }
+
+    #[test]
+    fn same_content_stays_one_row_across_kinds() {
+        let conn = mem();
+        upsert_text(&conn, "hello world").unwrap();
+        upsert_html(&conn, "hello world", b"<b>hello world</b>").unwrap(); // plain dup upgrades to html
+        upsert_text(&conn, "hello world").unwrap(); // plain copy of the html entry bumps it
+        let n: i64 = conn
+            .query_row("SELECT count(*) FROM clips", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 1, "same content must stay a single row");
+        let kind: String = conn
+            .query_row("SELECT kind FROM clips", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(kind, "html");
+    }
 }
