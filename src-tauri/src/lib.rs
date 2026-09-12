@@ -117,8 +117,26 @@ fn handle_clipboard_change(app: &AppHandle) {
             // huge texts would stall IPC, bloat WAL and make the panel lag —
             // skip anything over 256KB (real clipboard use is nowhere near)
             if t.len() <= 256 * 1024 {
-                if db::upsert_text(&conn, &t).is_ok() {
+                let clean = sanitize_text(&t);
+                if db::upsert_text(&conn, &clean).is_ok() {
                     captured = true;
+                }
+            } else {
+                // oversized: full text goes to a side file so nothing is lost —
+                // the DB row keeps only a short preview
+                let Ok(dir) = app.path().app_data_dir().map(|d| d.join("texts")) else {
+                    return;
+                };
+                let _ = std::fs::create_dir_all(&dir);
+                let clean = sanitize_text(&t);
+                let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                std::hash::Hash::hash(&clean, &mut hasher);
+                let path = dir.join(format!("{:016x}.txt", std::hash::Hasher::finish(&hasher)));
+                if std::fs::write(&path, &clean).is_err() { return; }
+                let short: String = clean.chars().take(2000).collect();
+                match db::upsert_text_file(&conn, &short, &path.to_string_lossy().as_ref()) {
+                    Ok(_) => { captured = true; cvlog!("[cv] big text stored: {}", path.display()); }
+                    Err(e) => cvlog!("[cv] big text upsert ERR: {e}"),
                 }
             }
         } else if let Some(png) = win::read_clipboard_png_raw() {
@@ -150,6 +168,14 @@ fn handle_clipboard_change(app: &AppHandle) {
     }
 }
 
+
+
+/// Removes control characters that break rendering/search (keeps newline, CR, tab).
+fn sanitize_text(s: &str) -> String {
+    s.chars()
+        .filter(|&c| !c.is_control() || c == '\n' || c == '\r' || c == '\t')
+        .collect()
+}
 
 fn html_to_plain(html: &[u8]) -> String {
     let s = String::from_utf8_lossy(html);
@@ -325,6 +351,11 @@ fn paste_clip(app: AppHandle, state: tauri::State<db::Db>, id: i64) -> Result<()
             let (plain, html) = db::get_html(&state.0.lock().unwrap_or_else(|p| p.into_inner()), id)?;
             win::write_clipboard_text(&plain)
                 && (html.is_empty() || win::write_clipboard_html(&html))
+        }
+        "text" if image_path.is_some() => {
+            // oversized text stored in a side file
+            let full = std::fs::read_to_string(image_path.unwrap_or_default()).unwrap_or_default();
+            win::write_clipboard_text(&full)
         }
         _ => win::write_clipboard_text(&content.unwrap_or_default()),
     };

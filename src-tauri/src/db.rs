@@ -14,6 +14,7 @@ pub struct Clip {
     pub pinned: bool,
     pub use_count: i64,
     pub created_at: i64,
+    pub text_path: Option<String>,
 }
 
 pub fn init(app: &tauri::App) -> Result<(), String> {
@@ -53,6 +54,11 @@ pub fn init(app: &tauri::App) -> Result<(), String> {
         conn.execute_batch("ALTER TABLE clips ADD COLUMN files TEXT;")
             .map_err(|e| e.to_string())?;
     }
+    if !has_col("text_path") {
+        // oversized texts live in a side file; the row keeps a short preview
+        conn.execute_batch("ALTER TABLE clips ADD COLUMN text_path TEXT;")
+            .map_err(|e| e.to_string())?;
+    }
     app.manage(Db(Mutex::new(conn)));
     Ok(())
 }
@@ -67,10 +73,11 @@ fn row_to_clip(r: &rusqlite::Row) -> rusqlite::Result<Clip> {
         pinned: r.get::<_, i64>(5)? != 0,
         use_count: r.get(6)?,
         created_at: r.get(7)?,
+        text_path: r.get(8)?,
     })
 }
 
-const COLS: &str = "id, kind, preview, image_path, content, pinned, use_count, created_at";
+const COLS: &str = "id, kind, preview, image_path, content, pinned, use_count, created_at, text_path";
 
 pub fn list(conn: &Connection, filter: &str, query: &str) -> Result<Vec<Clip>, String> {
     cvlog!("[cv] list: filter={filter:?} query={query:?} total={}", conn.query_row("SELECT count(*) FROM clips", [], |r| r.get::<_,i64>(0)).unwrap_or(-1));
@@ -181,6 +188,40 @@ pub fn upsert_image(conn: &Connection, path: &str, w: u32, h: u32) -> Result<Opt
     )
     .map_err(|e| e.to_string())?;
     Ok(Some(conn.last_insert_rowid()))
+}
+
+
+pub fn upsert_text_file(conn: &Connection, preview: &str, path: &str) -> Result<Option<i64>, String> {
+    let dup: Option<i64> = conn
+        .query_row(
+            "SELECT id FROM clips WHERE text_path=?1",
+            [path],
+            |r| r.get::<_, i64>(0),
+        )
+        .map(Some)
+        .unwrap_or(None);
+    if let Some(id) = dup {
+        conn.execute(
+            "UPDATE clips SET use_count=use_count+1, created_at=?2 WHERE id=?1",
+            rusqlite::params![id, now()],
+        )
+        .map_err(|e| e.to_string())?;
+        return Ok(Some(id));
+    }
+    conn.execute(
+        "INSERT INTO clips(kind, content, text_path, preview, use_count, created_at) VALUES('text', ?1, ?2, ?3, 1, ?4)",
+        rusqlite::params![preview, path, preview, now()],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(Some(conn.last_insert_rowid()))
+}
+
+/// Full text of an oversized entry (lives in the side file).
+pub fn get_text_file(conn: &Connection, id: i64) -> Result<Option<String>, String> {
+    let p: Option<String> = conn
+        .query_row("SELECT text_path FROM clips WHERE id=?1", [id], |r| r.get(0))
+        .map_err(|e| e.to_string())?;
+    Ok(p.and_then(|p| std::fs::read_to_string(p).ok()))
 }
 
 pub fn toggle_pin(conn: &Connection, id: i64) -> Result<(), String> {
