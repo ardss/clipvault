@@ -267,7 +267,10 @@ onMounted(async () => {
     })
   }
   unlisteners.push(await listen('clips-changed', refresh))
-  unlisteners.push(await listen('panel-shown', refresh))
+  unlisteners.push(await listen('panel-shown', () => {
+    refresh()
+    nextTick(() => document.querySelector('.search')?.focus())
+  }))
   window.addEventListener('keydown', onKey)
   refresh()
   if (!isZoomWin) {
@@ -326,7 +329,7 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="search-row" v-if="!showStats && !showSettings">
-      <input class="search" v-model="query" @input="onSearch" :placeholder="t('search')" />
+      <input ref="searchEl" class="search" v-model="query" @input="onSearch" :placeholder="t('search')" />
       <button v-if="query" class="search-clear" @click="clearSearch" title="Clear">
         <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
       </button>
@@ -447,7 +450,7 @@ onBeforeUnmount(() => {
 .search-clear { position: absolute; right: 18px; top: 50%; transform: translateY(-50%); border: 0; background: transparent; color: var(--fg-dim); width: 22px; height: 22px; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
 .search-clear:hover { background: var(--bg-hover); color: var(--fg); }
 .search { width: 100%; padding: 7px 30px 7px 10px; background: var(--bg-2); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; outline: none; font-size: 13px; }
-.search:focus { border-color: var(--accent-dim); }
+.search:focus { border-color: var(--accent); caret-color: var(--accent); }
 .tabs { display: flex; gap: 4px; padding: 4px 10px; flex-wrap: wrap; }
 .tab { border: 0; background: transparent; color: var(--fg-dim); padding: 4px 12px; border-radius: 999px; cursor: pointer; font-size: 12px; }
 .tab:hover { background: var(--bg-hover); }
