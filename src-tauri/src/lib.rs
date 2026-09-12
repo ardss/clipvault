@@ -25,11 +25,17 @@ pub struct Settings {
     pub history_limit: i64,
     pub panel_height: f64,
     pub autostart: bool,
+    #[serde(default = "default_hotkey")]
+    pub hotkey: String,
+    #[serde(default)]
+    pub sensitive_keywords: Vec<String>,
 }
+
+fn default_hotkey() -> String { "Alt+V".into() }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { history_limit: 1000, panel_height: 540.0, autostart: false }
+        Self { history_limit: 1000, panel_height: 540.0, autostart: false, hotkey: default_hotkey(), sensitive_keywords: Vec::new() }
     }
 }
 
@@ -72,6 +78,14 @@ fn save_image(app: &AppHandle, png: &[u8]) -> Option<(String, u32, u32)> {
     if !path.exists() {
         std::fs::write(&path, &bytes).ok()?;
     }
+    // 256px thumbnail: the panel lists load this instead of the full image
+    let thumb = dir.join("images").join(format!("{hash:016x}_t.png"));
+    if !thumb.exists() {
+        if let Ok(img) = image::load_from_memory(&bytes) {
+            let t = img.thumbnail(256, 256);
+            let _ = t.save(&thumb);
+        }
+    }
     Some((path.to_string_lossy().into_owned(), w, h))
 }
 
@@ -92,6 +106,7 @@ fn handle_clipboard_change(app: &AppHandle) {
     let st = app.state::<db::Db>();
     let conn = st.0.lock().unwrap_or_else(|p| p.into_inner());
     let limit = app.state::<SettingsState>().0.lock().unwrap_or_else(|p| p.into_inner()).history_limit;
+    let keywords: Vec<String> = app.state::<SettingsState>().0.lock().unwrap_or_else(|p| p.into_inner()).sensitive_keywords.clone();
     let mut captured = false;
     // priority: files > rich text/plain > image
     if let Some(files) = win::read_clipboard_files() {
@@ -118,7 +133,10 @@ fn handle_clipboard_change(app: &AppHandle) {
             // skip anything over 256KB (real clipboard use is nowhere near)
             if t.len() <= 256 * 1024 {
                 let clean = sanitize_text(&t);
-                if db::upsert_text(&conn, &clean).is_ok() {
+                let lower = clean.to_lowercase();
+                if keywords.iter().any(|k| !k.trim().is_empty() && lower.contains(&k.trim().to_lowercase())) {
+                    eprintln!("[cv] text matched sensitive keyword — skipped");
+                } else if db::upsert_text(&conn, &clean).is_ok() {
                     captured = true;
                 }
             } else {
@@ -162,7 +180,14 @@ fn handle_clipboard_change(app: &AppHandle) {
         }
     }
     if captured {
-        let _ = db::enforce_limit(&conn, limit);
+        if let Ok(victims) = db::enforce_limit(&conn, limit) {
+            // remove image files of evicted rows (thumbs too)
+            for p in victims {
+                let t = p.replace(".png", "_t.png");
+                let _ = std::fs::remove_file(&p);
+                let _ = std::fs::remove_file(&t);
+            }
+        }
         drop(conn);
         let _ = app.emit("clips-changed", ());
     }
@@ -469,6 +494,38 @@ pub fn run() {
                             let _ = w.eval("location.reload()");
                         }
                         HEARTBEAT.store(now, Ordering::SeqCst);
+                    }
+                });
+            }
+            // reconcile images dir against the DB once at startup: delete
+            // orphans no row references anymore
+            {
+                let h4 = app.handle().clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(Duration::from_secs(20));
+                    let Ok(dir) = h4.path().app_data_dir().map(|d| d.join("images")) else { return };
+                    let Some(st) = h4.try_state::<db::Db>() else { return };
+                    let conn = st.0.lock().unwrap_or_else(|p| p.into_inner());
+                    let mut removed = 0;
+                    if let Ok(entries) = std::fs::read_dir(&dir) {
+                        for e in entries.flatten() {
+                            let p = e.path();
+                            let s = p.to_string_lossy().into_owned();
+                            let referenced: bool = conn
+                                .query_row(
+                                    "SELECT count(*) FROM clips WHERE image_path=?1 OR image_path LIKE '%' || ?2",
+                                    rusqlite::params![s, s],
+                                    |r| r.get::<_, i64>(0),
+                                )
+                                .map(|c| c > 0)
+                                .unwrap_or(true);
+                            if !referenced {
+                                if std::fs::remove_file(&p).is_ok() { removed += 1; }
+                            }
+                        }
+                    }
+                    if removed > 0 {
+                        cvlog!("[cv] reconciled: removed {removed} orphan images");
                     }
                 });
             }

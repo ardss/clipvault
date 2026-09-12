@@ -154,14 +154,27 @@ pub fn upsert_text(conn: &Connection, content: &str) -> Result<Option<i64>, Stri
     Ok(Some(conn.last_insert_rowid()))
 }
 
-pub fn enforce_limit(conn: &Connection, max: i64) -> Result<(), String> {
+pub fn enforce_limit(conn: &Connection, max: i64) -> Result<Vec<String>, String> {
+    // find evicted rows (oldest unpinned beyond the limit), collect their image
+    // files, then delete the rows
+    let victims: Vec<Option<String>> = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT image_path FROM clips WHERE pinned=0 ORDER BY created_at DESC LIMIT -1 OFFSET ?1",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([max], |r| r.get::<_, Option<String>>(0))
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?
+    };
     conn.execute(
         "DELETE FROM clips WHERE id IN (
            SELECT id FROM clips WHERE pinned=0 ORDER BY created_at DESC LIMIT -1 OFFSET ?1)",
         [max],
     )
     .map_err(|e| e.to_string())?;
-    Ok(())
+    Ok(victims.into_iter().flatten().collect())
 }
 
 pub fn upsert_image(conn: &Connection, path: &str, w: u32, h: u32) -> Result<Option<i64>, String> {

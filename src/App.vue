@@ -25,7 +25,7 @@ const i18n = {
     statTotal:'总条目', statText:'文本', statImage:'图片', statLink:'链接', statFile:'文件',
     statPinned:'置顶', statToday:'今日新增', statPastes:'累计粘贴', statDaily:'近 7 天复制量',
     statTop:'最常粘贴 Top 5', times:'次',
-    setLimit:'历史上限', setLimitHint:'超出后自动清理最旧记录（置顶除外）', setAuto:'开机自动启动', setAutoHint:'登录 Windows 后在后台静默运行', shortcut:'呼出快捷键', about:'关于', save:'保存', saved:'设置已保存',
+    setLimit:'历史上限', setLimitHint:'超出后自动清理最旧记录（置顶除外）', setAuto:'开机自动启动', setAutoHint:'登录 Windows 后在后台静默运行', shortcut:'呼出快捷键', about:'关于', save:'保存', saved:'设置已保存', setHotkey:'呼出热键', setHotkeyHint:'如 Alt+V / Ctrl+Alt+V，保存后生效；若被占用会提示失败', setSensitive:'敏感词过滤', setSensitivePh:'token, password, 密码', setSensitiveHint:'复制的内容包含这些词时不记录（逗号分隔）',
     focusLost:'已复制到剪贴板，但无法聚焦原窗口，请手动 Ctrl+V', pasteFail:'粘贴失败，内容仍在剪贴板', dayToday:'今天', dayYesterday:'昨天', dayEarlier:'更早',
   },
   en: {
@@ -36,7 +36,7 @@ const i18n = {
     statTotal:'Total', statText:'Text', statImage:'Images', statLink:'Links', statFile:'Files',
     statPinned:'Pinned', statToday:'Today', statPastes:'Pastes', statDaily:'Last 7 days',
     statTop:'Top 5 pasted', times:'×',
-    setLimit:'History limit', setLimitHint:'Oldest unpinned items are cleaned up beyond the limit', setAuto:'Launch at startup', setAutoHint:'Runs quietly in the background after sign-in', shortcut:'Summon shortcut', about:'About', save:'Save', saved:'Settings saved',
+    setLimit:'History limit', setLimitHint:'Oldest unpinned items are cleaned up beyond the limit', setAuto:'Launch at startup', setAutoHint:'Runs quietly in the background after sign-in', shortcut:'Summon shortcut', about:'About', save:'Save', saved:'Settings saved', setHotkey:'Summon hotkey', setHotkeyHint:'e.g. Alt+V / Ctrl+Alt+V — applied on save; warns if taken', setSensitive:'Sensitive filter', setSensitivePh:'token, password, secret', setSensitiveHint:'Copies containing these words are never recorded (comma separated)',
     focusLost:'Copied to clipboard, but could not focus the previous window — press Ctrl+V manually', pasteFail:'Paste failed, content stays on clipboard', dayToday:'Today', dayYesterday:'Yesterday', dayEarlier:'Earlier',
   },
 }
