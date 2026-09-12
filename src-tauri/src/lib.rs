@@ -524,8 +524,26 @@ pub fn run() {
                             }
                         }
                     }
-                    if removed > 0 {
-                        cvlog!("[cv] reconciled: removed {removed} orphan images");
+                    // also purge rows whose image file no longer exists —
+                    // they would otherwise show broken previews forever
+                    let mut dead = 0;
+                    if let Ok(mut stmt) = conn
+                        .prepare("SELECT id, image_path FROM clips WHERE kind='image' AND image_path IS NOT NULL")
+                    {
+                        let rows = stmt
+                            .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))
+                            .map_err(|e| e.to_string());
+                        if let Ok(rows) = rows {
+                            for (id, p) in rows.flatten() {
+                                if !std::path::Path::new(&p).exists() {
+                                    let _ = conn.execute("DELETE FROM clips WHERE id=?1", [id]);
+                                    dead += 1;
+                                }
+                            }
+                        }
+                    }
+                    if removed > 0 || dead > 0 {
+                        cvlog!("[cv] reconciled: removed {removed} orphan images, {dead} dead rows");
                     }
                 });
             }

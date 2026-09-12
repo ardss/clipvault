@@ -19,7 +19,7 @@ window.addEventListener('unhandledrejection', (e) => {
 const i18n = {
   zh: {
     all:'全部', text:'文本', image:'图片', pinned:'置顶', link:'链接', file:'文件',
-    search:'搜索剪贴板…', empty:'暂无内容', emptyHint:'复制任意内容（文本/图片/文件）后自动出现在这里',
+    search:'搜索剪贴板…', empty:'暂无内容', emptyHint:'复制任意内容（文本/图片/文件）后自动出现在这里', expired:'图片已过期',
     copyHint:'点击条目粘贴 · ↑↓ 选择 · Enter 粘贴 · Del 删除', theme:'主题', lang:'语言',
     statsTitle:'统计', settingsTitle:'设置',
     statTotal:'总条目', statText:'文本', statImage:'图片', statLink:'链接', statFile:'文件',
@@ -30,7 +30,7 @@ const i18n = {
   },
   en: {
     all:'All', text:'Text', image:'Image', pinned:'Pinned', link:'Links', file:'Files',
-    search:'Search clipboard…', empty:'Nothing here yet', emptyHint:'Copy anything (text / image / files) and it shows up here',
+    search:'Search clipboard…', empty:'Nothing here yet', emptyHint:'Copy anything (text / image / files) and it shows up here', expired:'Expired',
     copyHint:'Click to paste · ↑↓ select · Enter paste · Del delete', theme:'Theme', lang:'Lang',
     statsTitle:'Stats', settingsTitle:'Settings',
     statTotal:'Total', statText:'Text', statImage:'Images', statLink:'Links', statFile:'Files',
@@ -143,7 +143,16 @@ watch([clips, beatMs], () => {
   health.value = `${clips.value.length} items · ipc ${beatMs.value}ms`
 }, { immediate: true })
 
-function thumb(c) { return c.image_path ? convertFileSrc(c.image_path) : '' }
+function thumb(c) {
+  if (!c.image_path) return ''
+  // thumbnails are <hash>_t.png; older entries may only have the full image
+  return convertFileSrc(c.image_path.replace(/\.png$/, '_t.png'))
+}
+const broken = ref(new Set())
+function markBroken(c) { const s = new Set(broken.value); s.add(c.id); broken.value = s }
+function thumbFallback(c, e) {
+  if (c.image_path) { e.target.src = convertFileSrc(c.image_path) } else { markBroken(c) }
+}
 
 async function onPin(c, e) { e.stopPropagation(); await invoke('toggle_pin', { id: c.id }); refresh() }
 async function onDelete(c, e) {
@@ -350,7 +359,8 @@ onBeforeUnmount(() => {
       <template v-for="g in grouped" :key="g.label">
         <div class="group-label">{{ g.label }}</div>
         <div v-for="c in g.items" :key="c.id" class="row" :class="{ sel: flat[selected] && flat[selected].id === c.id, open: false }" @click="onClick(c)" @mouseenter="rowEnter(c, $event)" @mouseleave="rowLeave">
-          <img v-if="c.kind === 'image'" class="thumb" :src="thumb(c)" loading="lazy" decoding="async" />
+          <span v-if="c.kind === 'image' && broken.has(c.id)" class="thumb broken" data-i18n="expired">图片已过期</span>
+          <img v-else-if="c.kind === 'image'" class="thumb" :src="thumb(c)" loading="lazy" decoding="async" @error="thumbFallback(c, $event)" />
           <svg v-else-if="c.kind === 'file'" class="kind-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg>
           <span v-if="c.kind === 'file'" class="preview">{{ (c.preview || '').replace(/^\s+/, '') }}</span>
           <svg v-else-if="c.kind === 'html'" class="kind-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 18 6-6-6-6"/><path d="m8 6-6 6 6 6"/></svg>
