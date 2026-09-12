@@ -419,7 +419,7 @@ onBeforeUnmount(() => {
             <kbd class="kbd">Alt + V</kbd>
           </div>
         </div>
-        <div class="about">{{ t('about') }} ClipVault v1.0.0 · MIT</div>
+        <div class="about">{{ t('about') }} ClipVault v0.1.0 · MIT</div>
       </div>
     </div>
 
