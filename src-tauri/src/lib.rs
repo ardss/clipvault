@@ -114,8 +114,12 @@ fn handle_clipboard_change(app: &AppHandle) {
                 captured = true;
             }
         } else if let Some(t) = text {
-            if db::upsert_text(&conn, &t).is_ok() {
-                captured = true;
+            // huge texts would stall IPC, bloat WAL and make the panel lag —
+            // skip anything over 256KB (real clipboard use is nowhere near)
+            if t.len() <= 256 * 1024 {
+                if db::upsert_text(&conn, &t).is_ok() {
+                    captured = true;
+                }
             }
         } else if let Some(png) = win::read_clipboard_png_raw() {
             // Snipping Tool / browsers / Office write exact "PNG" bytes —
