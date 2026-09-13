@@ -1,27 +1,103 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ClipVault v0.1.0 — 使用手册（内部测试）</title>
+<title>ClipVault — Windows 剪贴板历史管理器</title>
+<meta name="description" content="Windows 剪贴板历史管理器。装完 5MB，数据只存你电脑，没有账号，也不联网。">
 <style>
 :root {
   --bg: #101114; --bg2: #1c1f26; --card: #191b20; --fg: #e8e9ec; --dim: #9a9ca3;
   --dim2: #6f727a; --accent: #e8b84b; --accent2: #f0cc7a; --border: #2a2d35;
-  --warn: #e8b84b; --bad: #e5697a; --ok: #7bc47f;
+  --warn: #e8b84b; --bad: #e5697a; --ok: #7bc47f; --gold-fg: #1a1405; --gold-btm: #b98f2e;
+}
+html[data-theme='light'] {
+  --bg: #f7f5f0; --bg2: #fffdf8; --card: #fffdf8; --fg: #26272c; --dim: #5f6168;
+  --dim2: #8e9098; --accent: #c99a2e; --accent2: #a97f1c; --border: #e3dfd4;
+  --warn: #a97f1c; --bad: #c2414f; --ok: #3d8a42; --gold-fg: #fffdf8; --gold-btm: #a97f1c;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
 body { background: var(--bg); color: var(--fg);
   font-family: Inter, 'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei UI', 'PingFang SC', sans-serif;
   -webkit-font-smoothing: antialiased; line-height: 1.7; }
-.wrap { max-width: 760px; margin: 0 auto; padding: 28px 24px 60px; }
-h1 { font-size: 26px; display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
-h1 .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent);
+.wrap { max-width: 860px; margin: 0 auto; padding: 0 24px 60px; }
+a { color: var(--accent2); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.topbar-btns { display: flex; gap: 8px; position: fixed; top: 14px; right: 18px; z-index: 9; }
+.tbtn { border: 1px solid var(--border); border-radius: 7px; padding: 4px 10px; font-size: 12px;
+  cursor: pointer; background: var(--bg2); color: var(--dim); display: inline-flex; align-items: center; gap: 5px; }
+.tbtn:hover { color: var(--fg); border-color: var(--dim2); }
+
+.top { display: flex; align-items: center; gap: 10px; padding: 20px 0 0; }
+.top .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent);
   box-shadow: 0 0 12px rgba(232,184,75,.7); }
-.ver { color: var(--accent); font-size: 14px; }
-.sub { color: var(--dim2); font-size: 13px; margin-bottom: 30px; }
-h2 { font-size: 17px; margin: 34px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
-h2 .en { color: var(--dim2); font-size: 12px; font-weight: 400; margin-left: 8px; }
+.top b { font-size: 16px; letter-spacing: .3px; }
+.top .ver { color: var(--dim2); font-size: 12.5px; }
+.top .sp { flex: 1; }
+.top nav { display: flex; gap: 18px; font-size: 13px; }
+.top nav a { color: var(--dim); }
+.top nav a:hover { color: var(--fg); text-decoration: none; }
+
+.hero { padding: 56px 0 8px; }
+/* signature: the headline IS a clipboard entry — the app's selected row, enlarged */
+.hero-row { display: flex; gap: 18px; align-items: flex-start; max-width: 720px;
+  background: var(--bg2); border: 1px solid var(--border); border-left: 3px solid var(--accent);
+  border-radius: 10px; padding: 24px 26px 22px; }
+.kind-chip { flex-shrink: 0; width: 34px; height: 34px; border-radius: 8px; background: var(--card);
+  border: 1px solid var(--border); display: flex; align-items: center; justify-content: center;
+  font-family: Consolas, 'Cascadia Mono', monospace; font-size: 13px; color: var(--dim); margin-top: 6px; }
+.hero-row .body { flex: 1; min-width: 0; }
+.hero h1 { font-size: 38px; line-height: 1.22; letter-spacing: -.8px; font-weight: 700; }
+.hero .fact { color: var(--dim); font-size: 15px; margin: 12px 0 0; }
+.row-meta { flex-shrink: 0; display: flex; align-items: center; gap: 6px;
+  font-family: Consolas, 'Cascadia Mono', monospace; font-size: 12px; color: var(--dim2); margin-top: 10px; }
+.row-meta svg { color: var(--accent); }
+.btnrow { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+.btn { display: inline-block; font-size: 14.5px; font-weight: 600; border-radius: 9px;
+  padding: 11px 22px; cursor: pointer; border: 1px solid transparent; }
+.btn:hover { text-decoration: none; }
+.btn.gold { background: var(--accent); color: var(--gold-fg); border-bottom: 3px solid var(--gold-btm); }
+.btn.gold:hover { filter: brightness(1.06); }
+.btn.ghost { border-color: var(--border); color: var(--dim); }
+.btn.ghost:hover { color: var(--fg); border-color: var(--dim2); }
+.btnrow .note { color: var(--dim2); font-size: 12.5px; }
+
+h2 { font-size: 21px; margin: 64px 0 18px; letter-spacing: -.3px; }
+h2 .en { color: var(--dim2); font-size: 12.5px; font-weight: 400; margin-left: 10px; }
+.steps { counter-reset: s; }
+.step { display: flex; gap: 16px; align-items: baseline; padding: 10px 0; font-size: 15px; }
+.step::before { counter-increment: s; content: counter(s); flex-shrink: 0;
+  width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--accent);
+  color: var(--accent); font-size: 13px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center; transform: translateY(4px); }
+
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 11px; padding: 18px 20px; }
+.card h3 { font-size: 15.5px; margin-bottom: 6px; }
+.card p { color: var(--dim); font-size: 13.5px; }
+
+/* demo */
+.demo-box { background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+  padding: 26px; display: flex; gap: 28px; align-items: center; flex-wrap: wrap; }
+.demo-side { flex: 1; min-width: 240px; }
+.demo-side p { color: var(--dim); font-size: 13.5px; margin-bottom: 14px; }
+.phone { width: 380px; height: 600px; border: 1px solid var(--border); border-radius: 12px;
+  overflow: hidden; box-shadow: 0 18px 50px rgba(0,0,0,.35); flex-shrink: 0; background: var(--bg2); }
+.phone iframe { width: 100%; height: 100%; border: 0; }
+.demo-note { color: var(--dim2); font-size: 12px; margin-top: 12px; }
+
+.priv { background: var(--card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; margin-top: 20px; }
+.priv .half { padding: 20px 24px; }
+.priv .half + .half { border-top: 1px dashed var(--border); }
+.priv h3 { font-size: 15px; margin-bottom: 8px; }
+.priv ul { list-style: none; }
+.priv li { padding: 3px 0 3px 22px; position: relative; font-size: 13.5px; color: var(--dim); }
+.priv li::before { content: ''; position: absolute; left: 2px; top: 11px; width: 8px; height: 8px; border-radius: 50%; }
+.priv .yes li::before { background: var(--ok); }
+.priv .no li::before { background: var(--warn); }
+.priv .yes li b { color: var(--fg); font-weight: 600; }
+
 table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 td, th { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
 th { color: var(--dim); font-weight: 600; font-size: 12px; }
@@ -33,129 +109,331 @@ code { font-family: Consolas, 'Cascadia Mono', monospace; font-size: 12.5px;
   border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px;
   display: block; margin: 8px 0; word-break: break-all; color: var(--accent2); user-select: text; }
 li { margin: 6px 0 6px 20px; font-size: 13.5px; }
+ul.plain li { list-style: none; margin-left: 0; }
 .bad { color: var(--bad); }
 .warn { color: var(--warn); }
 .ok { color: var(--ok); }
-.lang { position: fixed; top: 16px; right: 20px; border: 1px solid var(--border);
-  border-radius: 7px; padding: 4px 10px; font-size: 12px; cursor: pointer;
-  background: var(--bg2); color: var(--dim); }
-.lang:hover { color: var(--fg); border-color: var(--dim2); }
-.footer { margin-top: 50px; color: var(--dim2); font-size: 11.5px; text-align: center; }
+.ki-note { color: var(--dim2); font-size: 12.5px; margin-bottom: 10px; }
+
+details { border: 1px solid var(--border); border-radius: 10px; margin: 12px 0; background: var(--card); }
+details summary { cursor: pointer; padding: 13px 18px; font-size: 14.5px; font-weight: 600; list-style: none; }
+details summary::before { content: '▸ '; color: var(--accent); }
+details[open] summary::before { content: '▾ '; }
+details .inner { padding: 4px 18px 16px; }
+
+.footer { margin-top: 70px; color: var(--dim2); font-size: 12px; text-align: center;
+  border-top: 1px solid var(--border); padding-top: 24px; }
+@media (max-width: 640px) {
+  .hero h1 { font-size: 27px; } .top nav { display: none; } .top { padding-top: 16px; }
+  .phone { width: 100%; height: 540px; } .demo-box { padding: 18px; }
+  .hero-row { flex-direction: column; gap: 12px; padding: 18px 20px; }
+  .kind-chip { margin-top: 0; } .row-meta { margin-top: 0; }
+}
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } * { animation: none !important; } }
 </style>
 </head>
 <body>
-<button class="lang" id="langBtn" onclick="toggleLang()">EN</button>
+<div class="topbar-btns">
+  <button class="tbtn" id="themeBtn" onclick="toggleTheme()" aria-label="theme"></button>
+  <button class="tbtn" id="langBtn" onclick="toggleLang()">EN</button>
+</div>
 <div class="wrap">
-  <h1><span class="dot"></span>ClipVault <span class="ver" data-i18n="ver">v0.1.0 内部测试版</span></h1>
-  <p class="sub" data-i18n="sub">私有仓库 · 仅自用 · 遇到问题看「已知问题」一节，或查 js-errors.log</p>
 
-  <h2><span data-i18n="h_keys">快捷键</span> <span class="en">Shortcuts</span></h2>
-  <table>
-    <tr><th><span data-i18n="th_key">按键</span></th><th><span data-i18n="th_action">作用</span></th></tr>
-    <tr><td><span class="kbd">Alt + V</span></td><td data-i18n="k1">呼出 / 隐藏面板（贴着鼠标弹出）</td></tr>
-    <tr><td><span class="kbd" data-i18n="k2_key">打字</span></td><td data-i18n="k2">搜索（搜的是内容，不只是标题）</td></tr>
-    <tr><td><span class="kbd">↑ / ↓</span></td><td data-i18n="k3">在条目间移动</td></tr>
-    <tr><td><span class="kbd">Enter</span></td><td data-i18n="k4">粘贴选中项到之前的窗口</td></tr>
-    <tr><td><span class="kbd">Del</span></td><td data-i18n="k5">删除选中项</td></tr>
-    <tr><td><span class="kbd">Esc</span></td><td data-i18n="k6">清空搜索 → 关闭面板</td></tr>
-    <tr><td><span class="kbd" data-i18n="k7_key">鼠标悬停</span></td><td data-i18n="k7">长文本看全文，图片看大图（可划选复制）</td></tr>
-  </table>
-
-  <h2><span data-i18n="h_data">数据在哪</span> <span class="en">Data</span></h2>
-  <p data-i18n="data_p">所有数据都在下面这个目录里。备份 = 复制整个文件夹；彻底清除 = 删掉它。</p>
-  <span class="path">%APPDATA%\com.clipvault.app\</span>
-  <ul>
-    <li><code>clips.db</code> — <span data-i18n="d1">历史记录（SQLite，明文）</span></li>
-    <li><code>images\</code> — <span data-i18n="d2">图片条目的 PNG 文件</span></li>
-    <li><code>settings.json</code> — <span data-i18n="d3">历史上限 / 面板高度 / 开机自启</span></li>
-    <li><code>js-errors.log</code> — <span data-i18n="d4">界面报错记录（排查问题时发这个）</span></li>
-  </ul>
-
-  <h2><span data-i18n="h_known">已知问题</span> <span class="en">Known issues</span></h2>
-  <ul>
-    <li data-i18n="ki1">呼出面板的瞬间会短暂打断打字（面板要接管键盘焦点才能搜索，行业共性难题）</li>
-    <li data-i18n="ki2">热键固定 Alt+V，暂不可改；与部分 IDE / 输入法可能冲突</li>
-    <li data-i18n="ki3">粘贴由常驻注入器子进程按键完成，个别杀软可能提示（属正常行为）</li>
-    <li data-i18n="ki4">搜索不支持拼音和模糊匹配</li>
-    <li class="bad" data-i18n="ki5">密码管理器复制的密码已自动跳过；但其他敏感内容仍是明文存储，请勿把它当保险箱</li>
-  </ul>
-
-  <h2><span data-i18n="h_priv">隐私边界</span> <span class="en">Privacy</span></h2>
-  <ul>
-    <li class="ok" data-i18n="pr1">没有任何联网功能——数据只在你硬盘上</li>
-    <li class="ok" data-i18n="pr2">密码管理器（Bitwarden / 1Password / KeePass）标记的敏感复制不会入库</li>
-    <li class="warn" data-i18n="pr3">除此之外的复制内容一律明文存储——它不是保险箱</li>
-  </ul>
-
-  <h2><span data-i18n="h_log">变更日志</span> <span class="en">Changelog</span></h2>
-  <div class="card">
-    <h3>v0.1.0</h3>
-    <ul>
-      <li data-i18n="ch1">首个内部测试版：文本/图片/文件/富文本/链接捕获与去重</li>
-      <li data-i18n="ch2">搜索、置顶、分类、键盘导航、悬停预览、统计</li>
-      <li data-i18n="ch3">贴回原窗口、深浅色、中英文、托盘、可选开机自启</li>
-      <li data-i18n="ch4">密码管理器敏感复制自动跳过；IPC 断流自愈</li>
-    </ul>
+  <div class="top">
+    <span class="dot"></span><b>ClipVault</b><span class="ver" data-i18n="ver">v0.1.0 · Windows</span>
+    <span class="sp"></span>
+    <nav>
+      <a href="#how" data-i18n="n_how">上手</a>
+      <a href="#features" data-i18n="n_feat">功能</a>
+      <a href="#demo" data-i18n="n_demo">在线试用</a>
+      <a href="#privacy" data-i18n="n_priv">隐私</a>
+      <a href="#manual" data-i18n="n_man">手册</a>
+    </nav>
   </div>
 
-  <p class="footer">ClipVault · <span data-i18n="f_internal">内部测试</span> · <span data-i18n="f_log">遇到问题先看 js-errors.log</span></p>
+  <div class="hero">
+    <div class="hero-row">
+      <span class="kind-chip">Aa</span>
+      <div class="body">
+        <h1 data-i18n="h1">你复制过的，都在。</h1>
+        <p class="fact" data-i18n="fact">Windows 剪贴板历史管理器。装完 5MB，数据只存你电脑，没有账号，也不联网。</p>
+      </div>
+      <span class="row-meta">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>
+        <span data-i18n="h_meta">刚刚 · 已去重</span>
+      </span>
+    </div>
+    <div class="btnrow" style="margin-top: 24px;">
+      <a class="btn gold" href="https://github.com/ardss/clipvault/releases" data-i18n="dl">下载 Windows 版</a>
+      <a class="btn ghost" href="#demo" data-i18n="try_demo">先在网页里试试</a>
+      <span class="note" data-i18n="dl_note">Windows 10 / 11 · 约 5MB · 免费</span>
+    </div>
+  </div>
+
+  <h2 id="how"><span data-i18n="h_how">三步上手</span> <span class="en" data-i18n="h_how_en">Steps</span></h2>
+  <div class="steps">
+    <div class="step" data-i18n="s1">照常复制，内容自动进历史</div>
+    <div class="step"><span class="kbd">Alt + V</span>&nbsp;<span data-i18n="s2">呼出面板，打几个字找到那条</span></div>
+    <div class="step"><span class="kbd">Enter</span>&nbsp;<span data-i18n="s3">粘贴回原来的窗口</span></div>
+  </div>
+
+  <h2 id="features"><span data-i18n="h_feat">它能帮你做什么</span> <span class="en" data-i18n="h_feat_en">Features</span></h2>
+  <div class="cards">
+    <div class="card"><h3 data-i18n="c1t">打几个字，找到那条</h3><p data-i18n="c1p">搜索按内容匹配，不用记得是从哪个网页、哪个文档复制的。</p></div>
+    <div class="card"><h3 data-i18n="c2t">复制十次，只留一条</h3><p data-i18n="c2p">同样的内容不重复占地方，只把时间挪到最近一次。</p></div>
+    <div class="card"><h3 data-i18n="c3t">截图、文件、长文本</h3><p data-i18n="c3p">图片有缩略图，多选文件整组记，超长内容转存成文件，一个字都不会丢。</p></div>
+    <div class="card"><h3 data-i18n="c4t">贴出去不花</h3><p data-i18n="c4p">图片贴进浏览器、Office 都是好的；富文本、链接、文件路径各走各的，不会串。</p></div>
+  </div>
+
+  <h2 id="demo"><span data-i18n="h_demo">先在网页里试试</span> <span class="en" data-i18n="h_demo_en">Live demo</span></h2>
+  <div class="demo-box">
+    <div class="demo-side">
+      <p data-i18n="demo_p">这就是真实的 ClipVault 面板，跑在你的浏览器里。可以搜索、切换分类、置顶、删除、看统计——数据只存在你的浏览器，关了页面就没有。</p>
+      <button class="btn gold" id="demoCopy" onclick="demoCopy()" data-i18n="demo_btn">模拟复制一条新内容</button>
+      <p class="demo-note" data-i18n="demo_note">实际使用中，这一步由 Ctrl+C 完成，不用点任何按钮。</p>
+    </div>
+    <div class="phone"><iframe id="demoFrame" src="demo/index.html" title="ClipVault demo"></iframe></div>
+  </div>
+
+  <h2 id="privacy"><span data-i18n="h_priv">复制密码，它不记住</span> <span class="en">Privacy</span></h2>
+  <div class="priv">
+    <div class="half yes">
+      <h3 class="ok" data-i18n="pr_t">它防什么</h3>
+      <ul>
+        <li data-i18n="pr1"><b>密码管理器复制的密码，直接跳过</b>——Bitwarden / 1Password / KeePass 会给这类复制打敏感标记，我们认这个标记</li>
+        <li data-i18n="pr2"><b>过滤词自己加</b>——比如 token、api-key 开头的内容，命中就不记录</li>
+        <li data-i18n="pr3"><b>不联网</b>——没有账号，没有云同步，没有遥测</li>
+      </ul>
+    </div>
+    <div class="half no">
+      <h3 class="warn" data-i18n="pb_t">它不防什么</h3>
+      <ul>
+        <li data-i18n="pb1">除上面两条之外，所有内容<b>明文存在本机，不加密</b>。它不是保险箱。</li>
+        <li data-i18n="pb2">介意明文存储的话，别把敏感内容交给它。</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2><span data-i18n="h_known">已知问题</span> <span class="en">Known issues</span></h2>
+  <p class="ki-note" data-i18n="ki_note">这些是我们知道的毛病，装之前先告诉你。</p>
+  <ul class="plain">
+    <li data-i18n="ki1">呼出面板的瞬间会短暂打断打字（面板要接管键盘焦点才能搜索，同类工具都有这个问题）</li>
+    <li data-i18n="ki2">热键默认 Alt+V，可在设置里改；跟部分 IDE、输入法可能冲突</li>
+    <li data-i18n="ki3">粘贴靠一个常驻的小进程按键完成，个别杀软可能提示（属正常行为）</li>
+    <li data-i18n="ki4">搜索不支持拼音和模糊匹配</li>
+    <li class="bad" data-i18n="ki5">除密码管理器外，其他敏感内容是明文存储——别把它当保险箱</li>
+  </ul>
+
+  <h2 id="manual"><span data-i18n="h_man">使用手册</span> <span class="en" data-i18n="h_man_en">Reference</span></h2>
+  <details>
+    <summary data-i18n="m_keys">快捷键</summary>
+    <div class="inner">
+      <table>
+        <tr><th><span data-i18n="th_key">按键</span></th><th><span data-i18n="th_action">作用</span></th></tr>
+        <tr><td><span class="kbd">Alt + V</span></td><td data-i18n="k1">呼出 / 隐藏面板（贴着鼠标弹出）</td></tr>
+        <tr><td><span class="kbd" data-i18n="k2_key">打字</span></td><td data-i18n="k2">搜索（搜的是内容，不只是标题）</td></tr>
+        <tr><td><span class="kbd">↑ / ↓</span></td><td data-i18n="k3">在条目间移动</td></tr>
+        <tr><td><span class="kbd">Enter</span></td><td data-i18n="k4">粘贴选中项到之前的窗口</td></tr>
+        <tr><td><span class="kbd">Del</span></td><td data-i18n="k5">删除选中项</td></tr>
+        <tr><td><span class="kbd">Esc</span></td><td data-i18n="k6">清空搜索 → 关闭面板</td></tr>
+        <tr><td><span class="kbd" data-i18n="k7_key">鼠标悬停</span></td><td data-i18n="k7">长文本看全文，图片看大图（可划选复制）</td></tr>
+      </table>
+    </div>
+  </details>
+  <details>
+    <summary data-i18n="m_data">数据在哪</summary>
+    <div class="inner">
+      <p data-i18n="data_p">所有数据都在下面这个目录里。备份 = 复制整个文件夹；彻底清除 = 删掉它。</p>
+      <span class="path">%APPDATA%\com.clipvault.app\</span>
+      <ul>
+        <li><code>clips.db</code> — <span data-i18n="d1">历史记录（SQLite，明文）</span></li>
+        <li><code>images\</code> — <span data-i18n="d2">图片条目的 PNG 文件</span></li>
+        <li><code>settings.json</code> — <span data-i18n="d3">历史上限 / 面板高度 / 开机自启</span></li>
+        <li><code>js-errors.log</code> — <span data-i18n="d4">界面报错记录（排查问题时发这个）</span></li>
+      </ul>
+    </div>
+  </details>
+  <details>
+    <summary data-i18n="m_log">变更日志</summary>
+    <div class="inner">
+      <h3>v0.1.0</h3>
+      <ul>
+        <li data-i18n="ch1">首个公开版本：文本/图片/文件/富文本/链接的记录与去重</li>
+        <li data-i18n="ch2">搜索、置顶、分类、键盘导航、悬停预览、统计</li>
+        <li data-i18n="ch3">贴回原窗口、深浅色、中英文、托盘、可选开机自启</li>
+        <li data-i18n="ch4">密码管理器的敏感复制自动跳过；面板假死自动恢复</li>
+      </ul>
+    </div>
+  </details>
+
+  <p class="footer">ClipVault · <span data-i18n="f_open">开源 · 本地运行 · 不联网</span> · <a href="https://github.com/ardss/clipvault" data-i18n="f_gh">GitHub</a></p>
 </div>
 
 <script>
 const I18N = {
+  zh: {
+    ver: 'v0.1.0 · Windows',
+    n_how: '上手', n_feat: '功能', n_demo: '在线试用', n_priv: '隐私', n_man: '手册',
+    h1: '你复制过的，都在。',
+    h_meta: '刚刚 · 已去重',
+    fact: 'Windows 剪贴板历史管理器。装完 5MB，数据只存你电脑，没有账号，也不联网。',
+    dl: '下载 Windows 版', try_demo: '先在网页里试试', dl_note: 'Windows 10 / 11 · 约 5MB · 免费',
+    h_how: '三步上手', h_how_en: 'Steps',
+    s1: '照常复制，内容自动进历史',
+    s2: '呼出面板，打几个字找到那条',
+    s3: '粘贴回原来的窗口',
+    h_feat: '它能帮你做什么', h_feat_en: 'Features',
+    c1t: '打几个字，找到那条',
+    c1p: '搜索按内容匹配，不用记得是从哪个网页、哪个文档复制的。',
+    c2t: '复制十次，只留一条',
+    c2p: '同样的内容不重复占地方，只把时间挪到最近一次。',
+    c3t: '截图、文件、长文本',
+    c3p: '图片有缩略图，多选文件整组记，超长内容转存成文件，一个字都不会丢。',
+    c4t: '贴出去不花',
+    c4p: '图片贴进浏览器、Office 都是好的；富文本、链接、文件路径各走各的，不会串。',
+    h_demo: '先在网页里试试', h_demo_en: 'Live demo',
+    demo_p: '这就是真实的 ClipVault 面板，跑在你的浏览器里。可以搜索、切换分类、置顶、删除、看统计——数据只存在你的浏览器，关了页面就没有。',
+    demo_btn: '模拟复制一条新内容',
+    demo_note: '实际使用中，这一步由 Ctrl+C 完成，不用点任何按钮。',
+    h_priv: '复制密码，它不记住',
+    pr_t: '它防什么',
+    pr1: '密码管理器复制的密码，直接跳过——Bitwarden / 1Password / KeePass 会给这类复制打敏感标记，我们认这个标记',
+    pr2: '过滤词自己加——比如 token、api-key 开头的内容，命中就不记录',
+    pr3: '不联网——没有账号，没有云同步，没有遥测',
+    pb_t: '它不防什么',
+    pb1: '除上面两条之外，所有内容明文存在本机，不加密。它不是保险箱。',
+    pb2: '介意明文存储的话，别把敏感内容交给它。',
+    h_known: '已知问题',
+    ki_note: '这些是我们知道的毛病，装之前先告诉你。',
+    ki1: '呼出面板的瞬间会短暂打断打字（面板要接管键盘焦点才能搜索，同类工具都有这个问题）',
+    ki2: '热键默认 Alt+V，暂不可改；跟部分 IDE、输入法可能冲突',
+    ki3: '粘贴靠一个常驻的小进程按键完成，个别杀软可能提示（属正常行为）',
+    ki4: '搜索不支持拼音和模糊匹配',
+    ki5: '除密码管理器外，其他敏感内容是明文存储——别把它当保险箱',
+    h_man: '使用手册', h_man_en: 'Reference', m_keys: '快捷键', m_data: '数据在哪', m_log: '变更日志',
+    th_key: '按键', th_action: '作用',
+    k1: '呼出 / 隐藏面板（贴着鼠标弹出）',
+    k2_key: '打字', k2: '搜索（搜的是内容，不只是标题）',
+    k3: '在条目间移动', k4: '粘贴选中项到之前的窗口',
+    k5: '删除选中项', k6: '清空搜索 → 关闭面板',
+    k7_key: '鼠标悬停', k7: '长文本看全文，图片看大图（可划选复制）',
+    data_p: '所有数据都在下面这个目录里。备份 = 复制整个文件夹；彻底清除 = 删掉它。',
+    d1: '历史记录（SQLite，明文）', d2: '图片条目的 PNG 文件',
+    d3: '历史上限 / 面板高度 / 开机自启', d4: '界面报错记录（排查问题时发这个）',
+    ch1: '首个公开版本：文本/图片/文件/富文本/链接的记录与去重',
+    ch2: '搜索、置顶、分类、键盘导航、悬停预览、统计',
+    ch3: '贴回原窗口、深浅色、中英文、托盘、可选开机自启',
+    ch4: '密码管理器的敏感复制自动跳过；面板假死自动恢复',
+    f_open: '开源 · 本地运行 · 不联网', f_gh: 'GitHub',
+    theme_dark: '深色', theme_light: '浅色',
+  },
   en: {
-    ver: 'v0.1.0 internal test build',
-    sub: 'Private repo · personal use · for troubleshooting see Known Issues and js-errors.log',
-    h_keys: 'Shortcuts', th_key: 'Key', th_action: 'Action',
+    ver: 'v0.1.0 · Windows',
+    n_how: 'How', n_feat: 'Features', n_demo: 'Try it', n_priv: 'Privacy', n_man: 'Manual',
+    h1: 'Everything you copy, right here.',
+    h_meta: 'just now · deduped',
+    fact: 'A Windows clipboard history manager. 5MB, fully local. No account, no cloud, nothing leaves your machine.',
+    dl: 'Download for Windows', try_demo: 'Try it in your browser', dl_note: 'Windows 10 / 11 · ~5MB · Free',
+    h_how: 'How it works', h_how_en: 'Steps',
+    s1: 'Copy as usual — everything is saved automatically',
+    s2: 'Press Alt+V, type a few letters to find it',
+    s3: 'Paste back into the window you came from',
+    h_feat: 'What it does for you', h_feat_en: 'Features',
+    c1t: 'Type a few letters, find that entry',
+    c1p: 'Search matches the content itself — no need to remember which page or file it came from.',
+    c2t: 'Copied ten times, kept once',
+    c2p: 'The same content takes one slot in history; only its timestamp moves up.',
+    c3t: 'Screenshots, files, huge text',
+    c3p: 'Images get thumbnails, multi-file copies stay grouped, oversized text is offloaded to a file — nothing is lost.',
+    c4t: 'Pastes cleanly',
+    c4p: 'Images paste fine into browsers and Office; rich text, links and file paths each keep their own channel.',
+    h_demo: 'Try it in your browser', h_demo_en: 'Live demo',
+    demo_p: 'This is the real ClipVault panel running in your browser. Search, switch tabs, pin, delete, open stats — the data lives in your browser and disappears when you close the page.',
+    demo_btn: 'Simulate copying something',
+    demo_note: 'In real use this step is just Ctrl+C — there is no button to press.',
+    h_priv: 'Passwords are never saved',
+    pr_t: 'What it protects',
+    pr1: 'Password-manager copies are skipped — Bitwarden / 1Password / KeePass flag these copies as sensitive, and ClipVault honors that flag',
+    pr2: 'Custom filter words — e.g. anything containing token or api-key is never recorded',
+    pr3: 'No network — no account, no cloud sync, no telemetry',
+    pb_t: 'What it does not protect',
+    pb1: 'Everything else is stored as PLAIN TEXT on your machine, unencrypted. It is not a vault.',
+    pb2: 'If that bothers you, do not hand it sensitive content.',
+    h_known: 'Known issues',
+    ki_note: 'These are the flaws we know about. You deserve to know before installing.',
+    ki1: 'Summoning briefly interrupts typing (the panel must take keyboard focus to search — every tool in this category shares this)',
+    ki2: 'The hotkey defaults to Alt+V and can be changed in settings; may clash with some IDEs / input methods',
+    ki3: 'Pasting is done by a small resident process pressing the keys; some antivirus tools may flag it (expected)',
+    ki4: 'Search has no pinyin or fuzzy matching',
+    ki5: 'Apart from password managers, sensitive content is stored as plain text — do not treat it as a vault',
+    h_man: 'Manual', h_man_en: 'Reference', m_keys: 'Shortcuts', m_data: 'Where your data lives', m_log: 'Changelog',
+    th_key: 'Key', th_action: 'Action',
     k1: 'Show / hide the panel (pops up near your cursor)',
     k2_key: 'Type', k2: 'Search — matches content, not just titles',
     k3: 'Move between items', k4: 'Paste the selected item into the previous window',
     k5: 'Delete the selected item', k6: 'Clear search, then close the panel',
     k7_key: 'Hover', k7: 'Full text for long entries, full image for pictures (select a fragment to copy)',
-    h_data: 'Where your data lives',
     data_p: 'Everything lives in this folder. Backup = copy it. Wipe = delete it.',
     d1: 'history (SQLite, plain text)', d2: 'PNG files for image entries',
     d3: 'history limit / panel height / autostart', d4: 'UI error log (send this when troubleshooting)',
-    h_known: 'Known issues',
-    ki1: 'Summoning briefly interrupts typing (the panel must take keyboard focus to search — an industry-wide quirk)',
-    ki2: 'Hotkey is fixed to Alt+V; may clash with some IDEs / input methods',
-    ki3: 'Pasting is performed by a resident injector child process; some antivirus tools may flag it (expected)',
-    ki4: 'Search has no pinyin or fuzzy matching',
-    ki5: 'Password-manager copies are auto-skipped, but everything else is stored as PLAIN TEXT — this is not a vault',
-    h_priv: 'Privacy boundary',
-    pr1: 'No network features at all — data never leaves your disk',
-    pr2: 'Copies flagged by password managers (Bitwarden / 1Password / KeePass) are never recorded',
-    pr3: 'Everything else is stored as plain text — this is not a vault',
-    h_log: 'Changelog',
-    ch1: 'First internal test build: text/image/file/rich-text/link capture with dedup',
+    ch1: 'First public release: text/image/file/rich-text/link capture with dedup',
     ch2: 'Search, pinning, categories, keyboard navigation, hover preview, stats',
     ch3: 'Paste-back, dark/light, zh/en, tray, optional autostart',
-    ch4: 'Password-manager sensitive copies auto-skipped; IPC self-healing',
-    f_internal: 'internal test', f_log: 'For troubleshooting check js-errors.log first',
+    ch4: 'Password-manager sensitive copies auto-skipped; panel self-healing',
+    f_open: 'Open source · Runs locally · Zero network', f_gh: 'GitHub',
+    theme_dark: 'Dark', theme_light: 'Light',
   }
 }
-function applyLang(l, initial) {
-  document.documentElement.lang = l === 'zh' ? 'zh-CN' : 'en'
-  document.getElementById('langBtn').textContent = l === 'zh' ? 'EN' : '中文'
-  if (l === 'zh') {
-    // switching back to zh: reload restores the baked-in copy.
-    // on initial load the page is already zh — reloading here would loop
-    if (!initial) location.reload()
-    return
-  }
-  document.querySelectorAll('[data-i18n]').forEach(e => {
-    const k = e.dataset.i18n
-    if (I18N.en[k]) e.textContent = I18N.en[k]
-  })
+
+let lang = localStorage.getItem('cv-site-lang') || 'zh'
+let theme = localStorage.getItem('cv-site-theme') || 'dark'
+const t = (k) => I18N[lang][k] ?? k
+
+function apply() {
+  document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en'
+  document.documentElement.dataset.theme = theme
+  document.getElementById('langBtn').textContent = lang === 'zh' ? 'EN' : '中文'
+  document.getElementById('themeBtn').textContent = theme === 'dark' ? '☀ ' + t('theme_light') : '🌙 ' + t('theme_dark')
+  document.querySelectorAll('[data-i18n]').forEach(e => { e.textContent = t(e.dataset.i18n) })
+  localStorage.setItem('cv-site-lang', lang)
+  localStorage.setItem('cv-site-theme', theme)
+  syncDemo()
 }
-function toggleLang() {
-  const cur = localStorage.getItem('cv-lang-page') || 'zh'
-  const next = cur === 'zh' ? 'en' : 'zh'
-  localStorage.setItem('cv-lang-page', next)
-  if (next === 'zh') { location.reload(); return }
-  applyLang(next)
+function toggleLang() { lang = lang === 'zh' ? 'en' : 'zh'; apply(); reloadDemo() }
+function toggleTheme() { theme = theme === 'dark' ? 'light' : 'dark'; apply() }
+
+// keep the embedded panel in step with the site
+function syncDemo() {
+  const f = document.getElementById('demoFrame')
+  if (!f || !f.contentWindow) return
+  try {
+    f.contentWindow.localStorage.setItem('cv-lang', lang)
+    f.contentWindow.localStorage.setItem('cv-theme', theme)
+    const doc = f.contentDocument
+    if (doc && doc.documentElement) doc.documentElement.dataset.theme = theme
+  } catch (e) { /* cross-origin (shouldn't happen — same origin) */ }
 }
-applyLang(localStorage.getItem('cv-lang-page') || 'zh', true)
+// the panel reads lang/theme at startup — reload it once after a lang switch
+function reloadDemo() {
+  const f = document.getElementById('demoFrame')
+  try { f.contentWindow.location.reload() } catch (e) {}
+}
+
+const demoPool = [
+  ['今晚 8 点提醒我给绿萝浇水', 'text'],
+  ['https://github.com/ardss/clipvault', 'link'],
+  ['node -v && npm -v', 'text'],
+  ['发票抬头：星野科技有限公司 / 税号 91440300MA5EXX1234', 'text'],
+  ['git push origin main --tags', 'text'],
+]
+let demoIdx = 0
+function demoCopy() {
+  const f = document.getElementById('demoFrame')
+  const [text, kind] = demoPool[demoIdx++ % demoPool.length]
+  try { f.contentWindow.cvDemo.addClip(text, kind) } catch (e) {}
+}
+apply()
 </script>
 
 </body>
