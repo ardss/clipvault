@@ -230,6 +230,7 @@ pub fn upsert_text_file(conn: &Connection, preview: &str, path: &str) -> Result<
 }
 
 /// Full text of an oversized entry (lives in the side file).
+#[allow(dead_code)]
 pub fn get_text_file(conn: &Connection, id: i64) -> Result<Option<String>, String> {
     let p: Option<String> = conn
         .query_row("SELECT text_path FROM clips WHERE id=?1", [id], |r| r.get(0))

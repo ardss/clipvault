@@ -14,11 +14,10 @@ mod win;
 
 
 use serde::{Deserialize, Serialize};
-use std::io::Write;
 use std::sync::atomic::Ordering;
 use std::sync::Mutex;
 use std::time::Duration;
-use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, WebviewWindow};
+use tauri::{AppHandle, Emitter, Manager, PhysicalPosition};
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Settings {

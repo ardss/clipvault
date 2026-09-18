@@ -328,6 +328,8 @@ pub fn get_cursor_pos() -> (i32, i32) {
     }
 }
 
+// kept as a fallback: the panel currently uses WS_EX_NOACTIVATE set at creation
+#[allow(dead_code)]
 pub fn set_noactivate(hwnd: isize) {
     unsafe {
         let h = HWND(hwnd as _);
@@ -363,6 +365,9 @@ pub fn point_in_panel(x: i32, y: i32) -> bool {
     false
 }
 
+// in-process paste is unreliable in some environments (see injector note below);
+// kept for debugging / fallback use
+#[allow(dead_code)]
 pub fn send_ctrl_v() {
     unsafe {
         keybd_event(VK_CONTROL.0 as u8, 0, KEYBD_EVENT_FLAGS(0), 0);
@@ -518,7 +523,7 @@ pub fn spawn_clipboard_listener<F: FnMut() + Send + 'static>(mut on_change: F) {
                     cvlog!("[cv] listener handler panicked; thread continues");
                 }
             }
-            TranslateMessage(&msg);
+            let _ = TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
     });
@@ -557,7 +562,7 @@ pub fn install_mouse_hook() {
         let _ = hook;
         let mut msg = MSG::default();
         while GetMessageW(&mut msg, None, 0, 0).as_bool() {
-            TranslateMessage(&msg);
+            let _ = TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
     });
@@ -907,7 +912,7 @@ pub fn log_clipboard_formats() {
 // through a named event.
 
 use windows::Win32::System::Threading::{
-    CreateEventW, OpenEventW, SetEvent, WaitForSingleObject, EVENT_MODIFY_STATE, INFINITE,
+    CreateEventW, OpenEventW, SetEvent, WaitForSingleObject, EVENT_MODIFY_STATE,
     SYNCHRONIZATION_ACCESS_RIGHTS,
 };
 
