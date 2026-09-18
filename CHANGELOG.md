@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Pause capture and clear-all-history controls in settings (both with explicit confirmation for destructive actions)
 - Configurable summon hotkey, sensitive-keyword filter, thumbnail & retention cleanup
-- Oversized text (>256 KB) is stored as a local side file with a 2 KB preview — nothing is silently dropped
+- Oversized text (>256 KB) is stored as a local side file with a 2,000-character preview — nothing is silently dropped
 
 ### Fixed
 

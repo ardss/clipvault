@@ -1,5 +1,8 @@
 //! Extra clipboard formats: CF_HDROP files, "HTML Format", raw "PNG", format logging.
-use super::clipboard::{open_clipboard_retry, read_clipboard_bytes, write_clipboard_single};
+use super::clipboard::{
+    mark_self_write, open_clipboard_retry, read_clipboard_bytes, set_clipboard_data_raw,
+    write_clipboard_single,
+};
 use super::*;
 
 // ---------- files (CF_HDROP) ----------
@@ -87,12 +90,21 @@ pub fn read_clipboard_html() -> Option<Vec<u8>> {
 
 pub fn write_clipboard_html(html: &[u8]) -> bool {
     let fmt = html_format_id();
-    if fmt == 0 {
+    if fmt == 0 || !open_clipboard_retry() {
         return false;
     }
-    // write_clipboard_single stamps the sequence number so the listener
-    // attributes this second write (after the text write) to us as well
-    write_clipboard_single(fmt, html)
+    // NO EmptyClipboard here: paste_clip writes CF_UNICODETEXT first and then
+    // adds "HTML Format" ALONGSIDE it in the same session — emptying would
+    // destroy the plain text that Notepad-style targets read. Stamping the
+    // sequence number attributes the second write to us as well.
+    let ok = set_clipboard_data_raw(fmt, html);
+    unsafe {
+        let _ = CloseClipboard();
+    }
+    if ok {
+        mark_self_write();
+    }
+    ok
 }
 
 /// Reads raw bytes of the registered "PNG" format if present (Snipping Tool,

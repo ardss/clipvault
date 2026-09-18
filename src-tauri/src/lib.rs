@@ -219,7 +219,7 @@ fn spawn_height_poller(h: tauri::AppHandle) {
 fn build_tray(app: &tauri::App) -> tauri::Result<()> {
     use tauri::menu::{Menu, MenuItem};
     use tauri::tray::TrayIconBuilder;
-    let show = MenuItem::with_id(app, "show", "显示面板 (Alt+V)", true, None::<&str>)?;
+    let show = MenuItem::with_id(app, "show", "显示面板", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "退出 ClipVault", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show, &quit])?;
     let mut tray = TrayIconBuilder::with_id("main");

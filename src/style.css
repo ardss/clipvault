@@ -12,6 +12,7 @@
   --hl: #ffe95c;                /* highlighter: the one warm spot */
   --border: #e9e9e4;
   --danger: #c2414f;
+  --danger-ink: #ffffff;
   --radius: 5px;
 }
 :root[data-theme='dark'] {

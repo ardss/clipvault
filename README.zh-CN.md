@@ -40,7 +40,6 @@ npx tauri build        # 产物在 src-tauri/target/release/bundle/
 Tauri 2 + Vue 3 + Rust（rusqlite / 手写 Win32 层）。
 
 > **注意：** 必须用 `npx tauri build` 构建发布版。裸 `cargo build --release` 不会关闭
-> 发布版。裸 `cargo build --release` 不会关闭
 > dev 配置，窗口将从 vite 开发服务器加载界面（详见
 > [docs/postmortem-2026-09-11.md](docs/postmortem-2026-09-11.md) 用 21 小时换的教训）。
 
@@ -59,7 +58,7 @@ npx tauri dev               # 终端 2
   Chromium 内核（Chrome/VS Code/Electron 应用）与 GDI 程序均正常读取；
   DIB 解码支持 BI_BITFIELDS 通道掩码（截图工具常用）
 - 粘贴按键由常驻注入器子进程发出（部分环境下进程内合成键会被系统吞掉）
-- WebView IPC 心跳看门狗：显示休眠导致通信断流时 10 秒内自动恢复
+- WebView IPC 心跳看门狗：面板自动检测断流的 IPC 通道并重载（JS 每 5 秒检查，原生兜底 60 秒内）
 - 数据全部存于 `%APPDATA%\com.clipvault.app\`（SQLite WAL + PNG 文件），安全边界见 [SECURITY.md](SECURITY.md)
 
 ## License

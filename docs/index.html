@@ -4,9 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ClipVault — Windows 剪贴板历史管理器</title>
-<meta name="description" content="Windows 剪贴板历史管理器。装完 5MB，数据只存你电脑，没有账号，也不联网。">
+<meta name="description" content="Windows 剪贴板历史管理器。安装包约 2.2MB，数据只存你电脑，没有账号，也不联网。">
 <meta property="og:title" content="ClipVault — 你复制过的，都在。">
-<meta property="og:description" content="Windows 剪贴板历史管理器。5MB，纯本地，零网络。">
+<meta property="og:description" content="Windows 剪贴板历史管理器。安装包 2.2MB，纯本地，零网络。">
 <meta property="og:image" content="images/og.png">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <style>
@@ -282,11 +282,11 @@ code { font-family: 'Cascadia Code', Consolas, monospace; font-size: 12.5px;
   <div class="hero">
     <div>
       <h1 data-i18n-html="h1">你<span class="marked">复制</span>过的，<br>都在。</h1>
-      <p class="fact" data-i18n-html="fact">Windows 剪贴板历史管理器。装完 <b>5MB</b>，数据只存你电脑，<b>没有账号，也不联网</b>。</p>
+      <p class="fact" data-i18n-html="fact">Windows 剪贴板历史管理器。装完 <b>2.2MB</b>，数据只存你电脑，<b>没有账号，也不联网</b>。</p>
       <div class="btnrow">
         <a class="btn hl" href="https://github.com/ardss/clipvault/releases" data-i18n="dl">下载 Windows 版</a>
         <a class="btn" href="#demo" data-i18n="try_demo">先在网页里试试</a>
-        <span class="note" data-i18n="dl_note">Win 10/11 · ~5MB · 免费</span>
+        <span class="note" data-i18n="dl_note">Win 10/11 · 安装包约 2.2MB · 免费</span>
       </div>
     </div>
     <figure class="hero-art">
@@ -317,7 +317,7 @@ code { font-family: 'Cascadia Code', Consolas, monospace; font-size: 12.5px;
     <span class="eyebrow" data-i18n="e_feat">// 功能</span>
     <h2>它帮你记住的<span class="en">what it keeps</span></h2>
     <div class="kinds" aria-hidden="true">
-      <span class="on" data-i18n="t_all">全部</span><span data-i18n="t_text">文本</span><span data-i18n="t_image">图片</span><span data-i18n="t_link">链接</span><span data-i18n="t_file">文件</span>
+      <span class="on" data-i18n="t_all">全部</span><span data-i18n="t_text">文本</span><span data-i18n="t_image">图片</span><span data-i18n="t_link">链接</span><span data-i18n="t_file">文件</span><span data-i18n="t_rtf">富文本</span>
     </div>
     <div class="entries">
       <div class="entry pinned">
@@ -351,6 +351,14 @@ code { font-family: 'Cascadia Code', Consolas, monospace; font-size: 12.5px;
           <p data-i18n="c4p">图片贴进浏览器、Office 都是好的；富文本、链接、文件路径各走各的，不会串。</p>
         </div>
         <span class="meta" data-i18n="m_yday">昨天</span>
+      </div>
+      <div class="entry pinned">
+        <span class="chip">II</span>
+        <div class="body">
+          <h3 data-i18n="c5t">说停就停，说删就删</h3>
+          <p data-i18n="c5p">设置里一键暂停采集、一键清空全部历史（含图片文件）——主动权在你手里。</p>
+        </div>
+        <span class="meta"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-1px"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg> <b data-i18n="m_pin">已置顶</b></span>
       </div>
     </div>
   </section>
@@ -454,7 +462,7 @@ code { font-family: 'Cascadia Code', Consolas, monospace; font-size: 12.5px;
   <span><span class="ok-dot"></span><span data-i18n="sb1">0 KB 已上传</span></span>
   <span data-i18n="sb2">无网络连接</span>
   <span class="sp"></span>
-  <span data-i18n="sb3">1 个进程常驻 · 约 5 MB 内存</span>
+  <span data-i18n="sb3">1 个进程常驻 · 约 10 MB 内存</span>
 </div>
 
 <script>
@@ -464,13 +472,13 @@ const I18N = {
     n_how: '上手', n_feat: '功能', n_demo: '在线试用', n_priv: '隐私', n_man: '手册',
     h1: '你<span class="marked">复制</span>过的，<br>都在。',
     hero_cap: '// 刚刚复制 · 已去重',
-    fact: 'Windows 剪贴板历史管理器。装完 <b>5MB</b>，数据只存你电脑，<b>没有账号，也不联网</b>。',
-    dl: '下载 Windows 版', try_demo: '先在网页里试试', dl_note: 'Win 10/11 · ~5MB · 免费',
+    fact: 'Windows 剪贴板历史管理器。装完 <b>2.2MB</b>，数据只存你电脑，<b>没有账号，也不联网</b>。',
+    dl: '下载 Windows 版', try_demo: '先在网页里试试', dl_note: 'Win 10/11 · 安装包约 2.2MB · 免费',
     e_how: '// 上手', e_feat: '// 功能', e_demo: '// 在线试用', e_priv: '// 隐私', e_ki: '// 已知问题', e_man: '// 手册',
     s1: '照常复制，内容自动进历史',
     s2: '呼出面板，打几个字找到那条',
     s3: '粘贴回原来的窗口',
-    t_all: '全部', t_text: '文本', t_image: '图片', t_link: '链接', t_file: '文件',
+    t_all: '全部', t_text: '文本', t_image: '图片', t_link: '链接', t_file: '文件', t_rtf: '富文本',
     c1t: '打几个字，找到那条',
     c1p: '搜索按内容匹配，不用记得是从哪个网页、哪个文档复制的。',
     c2t: '复制十次，只留一条',
@@ -479,6 +487,8 @@ const I18N = {
     c3p: '图片有缩略图，多选文件整组记，超长内容转存成文件，一个字都不会丢。',
     c4t: '贴出去不花',
     c4p: '图片贴进浏览器、Office 都是好的；富文本、链接、文件路径各走各的，不会串。',
+    c5t: '说停就停，说删就删',
+    c5p: '设置里一键暂停采集、一键清空全部历史（含图片文件）——主动权在你手里。',
     m_pin: '已置顶', m_now: '刚刚', m_min: '3 分钟前', m_yday: '昨天',
     demo_p: '这就是<b>真实的 ClipVault 面板</b>，跑在你的浏览器里。可以搜索、切换分类、置顶、删除、看统计——数据保存在浏览器的 localStorage，清除站点数据时才会重置。',
     demo_btn: '模拟复制一条新内容',
@@ -511,7 +521,7 @@ const I18N = {
     ch3: '贴回原窗口、深浅色、中英文、托盘、可选开机自启',
     ch4: '密码管理器的敏感复制自动跳过；面板假死自动恢复',
     f_open: '开源 · 本地运行 · 不联网', f_gh: 'GitHub',
-    sb1: '0 KB 已上传', sb2: '无网络连接', sb3: '1 个进程常驻 · 约 5 MB 内存',
+    sb1: '0 KB 已上传', sb2: '无网络连接', sb3: '1 个进程常驻 · 约 10 MB 内存',
     theme_dark: '深色', theme_light: '浅色',
   },
   en: {
@@ -519,13 +529,13 @@ const I18N = {
     n_how: 'How', n_feat: 'Features', n_demo: 'Try it', n_priv: 'Privacy', n_man: 'Manual',
     h1: 'Everything you <span class="marked">copy</span>,<br>right here.',
     hero_cap: '// copied just now · deduped',
-    fact: 'A Windows clipboard history manager. <b>5MB</b>, fully local. <b>No account, no cloud</b> — nothing leaves your machine.',
-    dl: 'Download for Windows', try_demo: 'Try it in your browser', dl_note: 'Win 10/11 · ~5MB · free',
+    fact: 'A Windows clipboard history manager. <b>2.2MB</b>, fully local. <b>No account, no cloud</b> — nothing leaves your machine.',
+    dl: 'Download for Windows', try_demo: 'Try it in your browser', dl_note: 'Win 10/11 · ~2.2MB installer · free',
     e_how: '// how', e_feat: '// features', e_demo: '// live demo', e_priv: '// privacy', e_ki: '// known issues', e_man: '// manual',
     s1: 'Copy as usual — everything is saved automatically',
     s2: 'Press Alt+V, type a few letters to find it',
     s3: 'Paste back into the window you came from',
-    t_all: 'All', t_text: 'Text', t_image: 'Image', t_link: 'Link', t_file: 'File',
+    t_all: 'All', t_text: 'Text', t_image: 'Image', t_link: 'Link', t_file: 'File', t_rtf: 'Rich',
     c1t: 'Type a few letters, find that entry',
     c1p: 'Search matches the content itself — no need to remember which page or file it came from.',
     c2t: 'Copied ten times, kept once',
@@ -534,6 +544,8 @@ const I18N = {
     c3p: 'Images get thumbnails, multi-file copies stay grouped, oversized text is offloaded to a file — nothing is lost.',
     c4t: 'Pastes cleanly',
     c4p: 'Images paste fine into browsers and Office; rich text, links and file paths each keep their own channel.',
+    c5t: 'Stop and wipe, any time',
+    c5p: 'One-click capture pause and one-click full history wipe (images included) from settings — you stay in control.',
     m_pin: 'pinned', m_now: 'just now', m_min: '3 min ago', m_yday: 'yesterday',
     demo_p: 'This is the <b>real ClipVault panel</b> running in your browser. Search, switch tabs, pin, delete, open stats — the data lives in your browser (localStorage) and only resets when you clear site data.',
     demo_btn: 'Simulate copying something',
@@ -566,7 +578,7 @@ const I18N = {
     ch3: 'Paste-back, dark/light, zh/en, tray, optional autostart',
     ch4: 'Password-manager sensitive copies auto-skipped; panel self-healing',
     f_open: 'Open source · Runs locally · Zero network', f_gh: 'GitHub',
-    sb1: '0 KB uploaded', sb2: 'no network connection', sb3: '1 resident process · ~5 MB in RAM',
+    sb1: '0 KB uploaded', sb2: 'no network connection', sb3: '1 resident process · ~10 MB in RAM',
     theme_dark: 'Dark', theme_light: 'Light',
   }
 }

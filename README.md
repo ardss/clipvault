@@ -67,8 +67,8 @@ Tests: `cd src-tauri && cargo test` (clipboard round-trip / DIB decoding / DROPF
   decoding supports BI_BITFIELDS channel masks (screenshot tools)
 - The paste keystroke is issued by a resident injector subprocess (in-process
   synthetic keys are swallowed on some setups)
-- WebView IPC heartbeat watchdog: recovers within 10 s when display sleep
-  breaks the communication channel
+- WebView IPC heartbeat watchdog: the panel detects a dead IPC channel and
+  reloads itself (JS check every 5 s, native fallback within 60 s)
 - All data lives in `%APPDATA%\com.clipvault.app\`
 
 ## License
