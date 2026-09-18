@@ -14,7 +14,6 @@ use tauri::Manager;
 pub const CF_UNICODETEXT: u32 = 13;
 pub const CF_DIB: u32 = 8;
 
-pub static SELF_WRITE_UNTIL: AtomicIsize = AtomicIsize::new(0);
 pub static SELF_WRITE_SEQ: AtomicIsize = AtomicIsize::new(-1);
 pub static PASTE_TARGET: AtomicIsize = AtomicIsize::new(0);
 pub static PANEL_VISIBLE: AtomicBool = AtomicBool::new(false);
@@ -303,28 +302,16 @@ pub fn write_clipboard_text(s: &str) -> bool {
 
 
 pub fn mark_self_write() {
-    let t = now_ms();
-    SELF_WRITE_UNTIL.store(t + 600, Ordering::SeqCst);
-    // record the clipboard sequence number our write produced: the listener
-    // thread may be delayed well past the 600ms window (long encodes, DB
-    // work ahead of it), and seq comparison stays valid indefinitely —
-    // an external copy bumps the sequence and is correctly NOT a self-write
+    // stamp the clipboard sequence number our write produced. Any clipboard
+    // update — ours or external — bumps the counter and ours re-stamp it on
+    // every write, so equality can only mean "the pending update is ours";
+    // no time window needed (a delayed listener thread used to fall outside
+    // the old 600ms gate and record our own paste as a new clip)
     SELF_WRITE_SEQ.store(unsafe { GetClipboardSequenceNumber() } as isize, Ordering::SeqCst);
 }
 
 pub fn is_self_write() -> bool {
-    if now_ms() >= SELF_WRITE_UNTIL.load(Ordering::SeqCst) {
-        return false; // window expired
-    }
-    // the pending update is ours only if the sequence hasn't moved since
     SELF_WRITE_SEQ.load(Ordering::SeqCst) == unsafe { GetClipboardSequenceNumber() } as isize
-}
-
-fn now_ms() -> isize {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as isize)
-        .unwrap_or(0)
 }
 
 // ---------- window helpers ----------

@@ -65,23 +65,38 @@ fn apply_settings(app: &AppHandle, s: &Settings) {
         let _ = w.set_size(tauri::LogicalSize::new(380.0, s.panel_height));
     }
     win::set_autostart(s.autostart);
-    // hotkey: unregister everything and register the configured combo (the
-    // plugin-level with_handler handles the event). Falls back to Alt+V when
-    // the stored string doesn't parse; failure to register (conflict with
-    // another app) is reported to the caller UI via Err in set_settings.
+    // setup runs on the main thread, so a direct register is correct here
+    let _ = register_hotkey_now(app, &s.hotkey);
+}
+
+/// Unregisters everything and registers the configured combo. Must run on the
+/// main thread — RegisterHotKey delivers WM_HOTKEY to the registering
+/// thread's message queue, and only the main thread pumps the plugin's loop.
+fn register_hotkey_now(app: &AppHandle, hotkey: &str) -> Result<(), String> {
     use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
     let g = app.global_shortcut();
     let _ = g.unregister_all();
-    let parsed = s
-        .hotkey
+    let parsed = hotkey
         .trim()
         .parse::<Shortcut>()
-        .or_else(|_| "Alt+V".parse::<Shortcut>());
-    match parsed {
-        Ok(sc) => {
-            let _ = g.register(sc);
-        }
-        Err(_) => eprintln!("[cv] unparseable hotkey: {:?}", s.hotkey),
+        .or_else(|_| "Alt+V".parse::<Shortcut>())
+        .map_err(|_| format!("unparseable hotkey: {hotkey:?}"))?;
+    g.register(parsed).map_err(|e| e.to_string())
+}
+
+/// set_settings runs on an IPC worker thread: post the registration to the
+/// main thread and wait briefly for its result so a conflict surfaces as Err.
+fn register_hotkey_via_main(app: &AppHandle, hotkey: &str) -> Result<(), String> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let app2 = app.clone();
+    let hk = hotkey.to_string();
+    app.run_on_main_thread(move || {
+        let _ = tx.send(register_hotkey_now(&app2, &hk));
+    })
+    .map_err(|e| e.to_string())?;
+    match rx.recv_timeout(Duration::from_secs(2)) {
+        Ok(r) => r,
+        Err(_) => Err("hotkey apply timed out".into()),
     }
 }
 
@@ -350,7 +365,13 @@ fn get_settings(state: tauri::State<SettingsState>) -> Settings {
 
 #[tauri::command]
 fn set_settings(app: AppHandle, state: tauri::State<SettingsState>, settings: Settings) -> Result<(), String> {
-    apply_settings(&app, &settings);
+    // hotkey first: on conflict (another app owns the combo) we fail loudly
+    // and keep the previous settings — the UI shows the error toast
+    register_hotkey_via_main(&app, &settings.hotkey)?;
+    if let Some(w) = app.get_webview_window("panel") {
+        let _ = w.set_size(tauri::LogicalSize::new(380.0, settings.panel_height));
+    }
+    win::set_autostart(settings.autostart);
     save_settings(&app, &settings);
     *state.0.lock().unwrap_or_else(|p| p.into_inner()) = settings;
     Ok(())
