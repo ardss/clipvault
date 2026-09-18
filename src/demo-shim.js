@@ -114,7 +114,7 @@ import seedShot2 from './assets/seed-shot2.png'
           case 'heartbeat': return resolve(Date.now())
           case 'list_clips': return resolve(listClips(args))
           case 'stats': return resolve(stats())
-          case 'get_settings': return resolve(loadSettings() || { history_limit: 1000, panel_height: 540, autostart: false })
+          case 'get_settings': return resolve(loadSettings() || { history_limit: 1000, panel_height: 540, autostart: false, hotkey: 'Alt+V', sensitive_keywords: [] })
           case 'set_settings': try { localStorage.setItem(LS_SET, JSON.stringify(args.settings)) } catch (e) {} return resolve(null)
           case 'toggle_pin': {
             const rows = load(); const r = rows.find(x => x.id === args.id)

@@ -59,7 +59,7 @@ function toggleTheme() {
 applyTheme()
 
 const health = ref('...')
-let beatMs = ref(0)
+const beatMs = ref(0)
 const filter = ref('all')
 const query = ref('')
 const clips = ref([])
@@ -132,6 +132,13 @@ watch(settings, () => {
     } catch (e) { console.error(e) }
   }, 500)
 }, { deep: true })
+// keywords live in settings as a string array; the UI edits one comma-separated string
+const sensitiveText = computed({
+  get: () => (settings.value.sensitive_keywords || []).join(', '),
+  set: (v) => {
+    settings.value.sensitive_keywords = v.split(',').map((s) => s.trim()).filter(Boolean)
+  },
+})
 async function openSettings() {
   closeOverlays()
   showSettings.value = true
@@ -261,23 +268,31 @@ function onKey(e) {
 }
 
 let unlisteners = []
+let zoomHoverCleanup = null
 onMounted(async () => {
   if (isZoomWin) {
     // this window is the hover preview: render payload, report hover state
     unlisteners.push(await listen('zoom-data', (e) => { zoomData.value = e.payload }))
-    window.addEventListener('mouseenter', () => emit('zoom-hover'))
-    window.addEventListener('mouseleave', () => emit('zoom-leave'))
+    const onEnter = () => emit('zoom-hover')
+    const onLeave = () => emit('zoom-leave')
+    window.addEventListener('mouseenter', onEnter)
+    window.addEventListener('mouseleave', onLeave)
+    zoomHoverCleanup = () => {
+      window.removeEventListener('mouseenter', onEnter)
+      window.removeEventListener('mouseleave', onLeave)
+    }
     return
   }
   { // persist panel height after edge/grip resize (debounced)
     let rt = null
-    await getCurrentWindow().listen('tauri://resize', ({ payload }) => {
+    const unresize = await getCurrentWindow().listen('tauri://resize', ({ payload }) => {
       clearTimeout(rt)
       rt = setTimeout(() => {
         const h = payload.height / window.devicePixelRatio
         if (h >= 360 && h <= 900) invoke('save_panel_height', { h }).catch(console.error)
       }, 400)
     })
+    unlisteners.push(unresize)
   }
   unlisteners.push(await listen('clips-changed', refresh))
   unlisteners.push(await listen('panel-shown', () => {
@@ -314,6 +329,7 @@ onMounted(async () => {
 })
 onBeforeUnmount(() => {
   unlisteners.forEach((u) => u())
+  if (zoomHoverCleanup) zoomHoverCleanup()
   window.removeEventListener('keydown', onKey)
 })
 </script>
@@ -342,7 +358,7 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="search-row" v-if="!showStats && !showSettings">
-      <input ref="searchEl" class="search" v-model="query" @input="onSearch" :placeholder="t('search')" />
+      <input class="search" v-model="query" @input="onSearch" :placeholder="t('search')" />
       <button v-if="query" class="search-clear" @click="clearSearch" title="Clear">
         <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
       </button>
@@ -355,14 +371,18 @@ onBeforeUnmount(() => {
       </button>
     </div>
 
-    <div class="list" v-if="!showStats && !showSettings">
+    <div class="list" role="listbox" :aria-label="t('all')" v-if="!showStats && !showSettings">
       <div v-if="clips.length === 0" class="empty">
         <div class="empty-title">{{ t('empty') }}</div>
         <div class="empty-hint">{{ t('emptyHint') }}</div>
       </div>
       <template v-for="g in grouped" :key="g.label">
         <div class="group-label">{{ g.label }}</div>
-        <div v-for="c in g.items" :key="c.id" class="row" :class="{ sel: flat[selected] && flat[selected].id === c.id, open: false }" @click="onClick(c)" @mouseenter="rowEnter(c, $event)" @mouseleave="rowLeave">
+        <div v-for="c in g.items" :key="c.id" class="row" role="option"
+             :aria-selected="flat[selected] && flat[selected].id === c.id"
+             :aria-label="c.kind === 'image' ? c.preview : undefined"
+             :class="{ sel: flat[selected] && flat[selected].id === c.id, open: false }"
+             @click="onClick(c)" @mouseenter="rowEnter(c, $event)" @mouseleave="rowLeave">
           <span v-if="c.kind === 'image' && broken.has(c.id)" class="thumb broken">{{ t('expired') }}</span>
           <img v-else-if="c.kind === 'image'" class="thumb" :src="thumb(c)" loading="lazy" decoding="async" @error="thumbFallback(c, $event)" />
           <svg v-else-if="c.kind === 'file'" class="kind-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg>
@@ -423,7 +443,7 @@ onBeforeUnmount(() => {
           <div class="set-head">
             <span class="set-name">{{ t('setAuto') }}</span>
             <label class="switch">
-              <input type="checkbox" v-model="settings.autostart" />
+              <input type="checkbox" v-model="settings.autostart" :aria-label="t('setAuto')" />
               <span class="track"><span class="knob"></span></span>
             </label>
           </div>
@@ -433,8 +453,18 @@ onBeforeUnmount(() => {
         <div class="set-card">
           <div class="set-head">
             <span class="set-name">ClipVault</span>
-            <kbd class="kbd">Alt + V</kbd>
+            <input class="set-input" v-model="settings.hotkey" :placeholder="t('setHotkey')"
+                   spellcheck="false" :aria-label="t('setHotkey')" />
           </div>
+          <div class="set-hint">{{ t('setHotkeyHint') }}</div>
+        </div>
+        <div class="set-card">
+          <div class="set-head">
+            <span class="set-name">{{ t('setSensitive') }}</span>
+          </div>
+          <input class="set-input" v-model="sensitiveText" :placeholder="t('setSensitivePh')"
+                 spellcheck="false" :aria-label="t('setSensitive')" />
+          <div class="set-hint">{{ t('setSensitiveHint') }}</div>
         </div>
         <div class="about">{{ t('about') }} ClipVault v0.1.0 · MIT</div>
       </div>
@@ -507,6 +537,9 @@ onBeforeUnmount(() => {
 .set-value { font-size: 12px; font-variant-numeric: tabular-nums; color: var(--accent); font-weight: 600; }
 .set-hint { font-size: 10.5px; color: var(--fg-dim); margin-top: 6px; line-height: 1.4; }
 .set-slider { width: 100%; margin-top: 8px; accent-color: var(--accent); height: 4px; cursor: pointer; }
+.set-input { width: 100%; margin-top: 8px; padding: 6px 8px; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; outline: none; font-size: 12px; }
+.set-input:focus { border-color: var(--accent); caret-color: var(--accent); }
+.set-head .set-input { width: auto; min-width: 120px; margin-top: 0; text-align: right; }
 .switch { position: relative; display: inline-block; cursor: pointer; }
 .switch input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
 .track { display: block; width: 36px; height: 20px; border-radius: 999px; background: var(--border); transition: background .15s ease; position: relative; }
