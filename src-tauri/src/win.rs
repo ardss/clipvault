@@ -15,6 +15,7 @@ pub const CF_UNICODETEXT: u32 = 13;
 pub const CF_DIB: u32 = 8;
 
 pub static SELF_WRITE_UNTIL: AtomicIsize = AtomicIsize::new(0);
+pub static SELF_WRITE_SEQ: AtomicIsize = AtomicIsize::new(-1);
 pub static PASTE_TARGET: AtomicIsize = AtomicIsize::new(0);
 pub static PANEL_VISIBLE: AtomicBool = AtomicBool::new(false);
 pub static PANEL_RECT: StdMutex<(i32, i32, i32, i32)> = StdMutex::new((0, 0, 0, 0));
@@ -304,10 +305,19 @@ pub fn write_clipboard_text(s: &str) -> bool {
 pub fn mark_self_write() {
     let t = now_ms();
     SELF_WRITE_UNTIL.store(t + 600, Ordering::SeqCst);
+    // record the clipboard sequence number our write produced: the listener
+    // thread may be delayed well past the 600ms window (long encodes, DB
+    // work ahead of it), and seq comparison stays valid indefinitely —
+    // an external copy bumps the sequence and is correctly NOT a self-write
+    SELF_WRITE_SEQ.store(unsafe { GetClipboardSequenceNumber() } as isize, Ordering::SeqCst);
 }
 
 pub fn is_self_write() -> bool {
-    now_ms() < SELF_WRITE_UNTIL.load(Ordering::SeqCst)
+    if now_ms() >= SELF_WRITE_UNTIL.load(Ordering::SeqCst) {
+        return false; // window expired
+    }
+    // the pending update is ours only if the sequence hasn't moved since
+    SELF_WRITE_SEQ.load(Ordering::SeqCst) == unsafe { GetClipboardSequenceNumber() } as isize
 }
 
 fn now_ms() -> isize {
@@ -992,10 +1002,22 @@ fn foreground_focus() -> (isize, isize) {
     }
 }
 
+/// Handshake file lives in the app's own (user-ACL'd) data dir, not TEMP —
+/// any same-user process could rewrite a TEMP file and redirect the paste.
+fn inject_file() -> std::path::PathBuf {
+    let dir = std::env::var("APPDATA")
+        .map(|d| std::path::Path::new(&d).join("com.clipvault.app"))
+        .unwrap_or_else(|_| std::path::PathBuf::from("com.clipvault.app"));
+    let _ = std::fs::create_dir_all(&dir);
+    dir.join("cv-inject.txt")
+}
+
 /// (target hwnd, target focus hwnd) written by the main app before signaling.
+/// The file is consumed (deleted) on read so a stale signal can't be replayed.
 fn read_inject_target() -> (isize, isize) {
-    let dir = std::env::var("TEMP").unwrap_or_else(|_| "C:\\Windows\\Temp".into());
-    if let Ok(content) = std::fs::read_to_string(std::path::Path::new(&dir).join("cv-inject.txt")) {
+    let path = inject_file();
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        let _ = std::fs::remove_file(&path);
         let nums: Vec<isize> = content
             .split_whitespace()
             .filter_map(|p| p.parse().ok())
@@ -1012,38 +1034,67 @@ pub fn focus_hwnd() -> isize {
     FOCUS_HWND.load(Ordering::SeqCst)
 }
 
-/// Signals the resident injector to send Ctrl+V.
-pub fn request_paste_keystroke(target: isize, focus: isize) {
+/// Signals the resident injector to send Ctrl+V. Returns false when the
+/// injector can't be reached — the caller must surface that (the panel is
+/// already hidden at that point, so a silent no-op would lose the paste).
+pub fn request_paste_keystroke(target: isize, focus: isize) -> bool {
     // tell the injector what "ready" looks like
-    let dir = std::env::var("TEMP").unwrap_or_else(|_| "C:\\Windows\\Temp".into());
-    let _ = std::fs::write(
-        std::path::Path::new(&dir).join("cv-inject.txt"),
-        format!("{target} {focus}"),
-    );
+    let _ = std::fs::write(inject_file(), format!("{target} {focus}"));
     static CACHE: StdMutex<Option<isize>> = StdMutex::new(None);
     let mut cache = CACHE.lock().unwrap();
     if let Some(h) = *cache {
         if h != 0 {
-            unsafe {
-                let _ = SetEvent(HANDLE(h as *mut core::ffi::c_void));
+            let ok = unsafe { SetEvent(HANDLE(h as *mut core::ffi::c_void)) }.is_ok();
+            if ok {
+                return true;
             }
-            return;
+            // stale handle (injector restarted) — drop it and reopen below
+            *cache = None;
         }
     }
     // (re)try opening; only cache on success — a failure (injector not yet
     // up, or gone) must stay retryable
-    let name = wide("ClipVaultInject");
-    if let Ok(hv) = unsafe {
-        OpenEventW(
-            SYNCHRONIZATION_ACCESS_RIGHTS(0x00100000) | EVENT_MODIFY_STATE,
-            false,
-            PCWSTR(name.as_ptr()),
-        )
-    } {
-        *cache = Some(hv.0 as isize);
+    let open = || -> Option<isize> {
+        let name = wide("ClipVaultInject");
         unsafe {
-            let _ = SetEvent(HANDLE(hv.0 as *mut core::ffi::c_void));
+            OpenEventW(
+                SYNCHRONIZATION_ACCESS_RIGHTS(0x00100000) | EVENT_MODIFY_STATE,
+                false,
+                PCWSTR(name.as_ptr()),
+            )
+            .ok()
+            .map(|hv| hv.0 as isize)
         }
+    };
+    let mut hv = open();
+    if hv.is_none() {
+        // injector died — respawn it (detached: it's a resident loop) and
+        // give it a moment to create the event
+        if let Ok(exe) = std::env::current_exe() {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            let _ = std::process::Command::new(exe)
+                .arg("--injector")
+                .creation_flags(CREATE_NO_WINDOW)
+                .spawn();
+        }
+        for _ in 0..20 {
+            if let Some(h) = open() {
+                hv = Some(h);
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    }
+    match hv {
+        Some(h) => {
+            let ok = unsafe { SetEvent(HANDLE(h as *mut core::ffi::c_void)) }.is_ok();
+            if ok {
+                *cache = Some(h);
+            }
+            ok
+        }
+        None => false,
     }
 }
 

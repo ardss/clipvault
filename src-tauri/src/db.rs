@@ -128,9 +128,10 @@ pub fn upsert_text(conn: &Connection, content: &str) -> Result<Option<i64>, Stri
     if preview.trim().is_empty() {
         return Ok(None);
     }
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
     // same content may already exist as 'text' or as 'html' (rich copy) —
     // user-visible rule: one entry per unique content
-    if let Some(id) = conn
+    if let Some(id) = tx
         .query_row(
             "SELECT id FROM clips WHERE content=?1 AND kind IN ('text','html')",
             [content],
@@ -139,26 +140,31 @@ pub fn upsert_text(conn: &Connection, content: &str) -> Result<Option<i64>, Stri
         .map(Some)
         .unwrap_or(None)
     {
-        conn.execute(
+        tx.execute(
             "UPDATE clips SET use_count=use_count+1, created_at=?2 WHERE id=?1",
             rusqlite::params![id, now()],
         )
         .map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
         return Ok(Some(id));
     }
-    conn.execute(
+    tx.execute(
         "INSERT INTO clips(kind, content, preview, pinned, use_count, created_at) VALUES('text',?1,?2,0,1,?3)",
         rusqlite::params![content, preview, now()],
     )
     .map_err(|e| e.to_string())?;
-    Ok(Some(conn.last_insert_rowid()))
+    let id = tx.last_insert_rowid();
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(Some(id))
 }
 
 pub fn enforce_limit(conn: &Connection, max: i64) -> Result<Vec<(Option<String>, Option<String>)>, String> {
     // find evicted rows (oldest unpinned beyond the limit), collect their image
-    // and oversized-text side files, then delete the rows
+    // and oversized-text side files, then delete the rows — one transaction so
+    // a crash can't orphan files for rows that still exist (or vice versa)
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
     let victims: Vec<(Option<String>, Option<String>)> = {
-        let mut stmt = conn
+        let mut stmt = tx
             .prepare(
                 "SELECT image_path, text_path FROM clips WHERE pinned=0 ORDER BY created_at DESC LIMIT -1 OFFSET ?1",
             )
@@ -168,18 +174,20 @@ pub fn enforce_limit(conn: &Connection, max: i64) -> Result<Vec<(Option<String>,
             .map_err(|e| e.to_string())?;
         rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?
     };
-    conn.execute(
+    tx.execute(
         "DELETE FROM clips WHERE id IN (
            SELECT id FROM clips WHERE pinned=0 ORDER BY created_at DESC LIMIT -1 OFFSET ?1)",
         [max],
     )
     .map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
     Ok(victims)
 }
 
 pub fn upsert_image(conn: &Connection, path: &str, w: u32, h: u32) -> Result<Option<i64>, String> {
     let preview = format!("[Image {w}x{h}]");
-    if let Some(id) = conn
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    if let Some(id) = tx
         .query_row(
             "SELECT id FROM clips WHERE kind='image' AND image_path=?1",
             [path],
@@ -188,24 +196,28 @@ pub fn upsert_image(conn: &Connection, path: &str, w: u32, h: u32) -> Result<Opt
         .map(Some)
         .unwrap_or(None)
     {
-        conn.execute(
+        tx.execute(
             "UPDATE clips SET use_count=use_count+1, created_at=?2 WHERE id=?1",
             rusqlite::params![id, now()],
         )
         .map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
         return Ok(Some(id));
     }
-    conn.execute(
+    tx.execute(
         "INSERT INTO clips(kind, image_path, preview, pinned, use_count, created_at) VALUES('image',?1,?2,0,1,?3)",
         rusqlite::params![path, preview, now()],
     )
     .map_err(|e| e.to_string())?;
-    Ok(Some(conn.last_insert_rowid()))
+    let id = tx.last_insert_rowid();
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(Some(id))
 }
 
 
 pub fn upsert_text_file(conn: &Connection, preview: &str, path: &str) -> Result<Option<i64>, String> {
-    let dup: Option<i64> = conn
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    let dup: Option<i64> = tx
         .query_row(
             "SELECT id FROM clips WHERE text_path=?1",
             [path],
@@ -214,19 +226,22 @@ pub fn upsert_text_file(conn: &Connection, preview: &str, path: &str) -> Result<
         .map(Some)
         .unwrap_or(None);
     if let Some(id) = dup {
-        conn.execute(
+        tx.execute(
             "UPDATE clips SET use_count=use_count+1, created_at=?2 WHERE id=?1",
             rusqlite::params![id, now()],
         )
         .map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
         return Ok(Some(id));
     }
-    conn.execute(
+    tx.execute(
         "INSERT INTO clips(kind, content, text_path, preview, use_count, created_at) VALUES('text', ?1, ?2, ?3, 1, ?4)",
         rusqlite::params![preview, path, preview, now()],
     )
     .map_err(|e| e.to_string())?;
-    Ok(Some(conn.last_insert_rowid()))
+    let id = tx.last_insert_rowid();
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(Some(id))
 }
 
 /// Full text of an oversized entry (lives in the side file).
@@ -250,15 +265,17 @@ pub fn toggle_pin(conn: &Connection, id: i64) -> Result<(), String> {
 /// Deletes a clip row and its on-disk files: the PNG, its `_t.png` thumbnail
 /// and, for oversized text entries, the full-text side file.
 pub fn delete(conn: &Connection, id: i64) -> Result<(), String> {
-    let (image_path, text_path): (Option<String>, Option<String>) = conn
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    let (image_path, text_path): (Option<String>, Option<String>) = tx
         .query_row(
             "SELECT image_path, text_path FROM clips WHERE id=?1",
             [id],
             |r| Ok((r.get::<_, Option<String>>(0)?, r.get::<_, Option<String>>(1)?)),
         )
         .unwrap_or((None, None));
-    conn.execute("DELETE FROM clips WHERE id=?1", [id])
+    tx.execute("DELETE FROM clips WHERE id=?1", [id])
         .map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
     remove_clip_files(image_path.as_deref(), text_path.as_deref());
     Ok(())
 }
@@ -391,7 +408,8 @@ pub fn upsert_file(conn: &Connection, paths: &[String]) -> Result<Option<i64>, S
     } else {
         format!("[File] {} +{} more", paths[0], paths.len() - 1)
     };
-    if let Some(id) = conn
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    if let Some(id) = tx
         .query_row(
             "SELECT id FROM clips WHERE kind='file' AND files=?1",
             [&joined],
@@ -400,19 +418,22 @@ pub fn upsert_file(conn: &Connection, paths: &[String]) -> Result<Option<i64>, S
         .map(Some)
         .unwrap_or(None)
     {
-        conn.execute(
+        tx.execute(
             "UPDATE clips SET use_count=use_count+1, created_at=?2 WHERE id=?1",
             rusqlite::params![id, now()],
         )
         .map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
         return Ok(Some(id));
     }
-    conn.execute(
+    tx.execute(
         "INSERT INTO clips(kind, files, preview, use_count, created_at) VALUES('file',?1,?2,1,?3)",
         rusqlite::params![joined, preview, now()],
     )
     .map_err(|e| e.to_string())?;
-    Ok(Some(conn.last_insert_rowid()))
+    let id = tx.last_insert_rowid();
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(Some(id))
 }
 
 pub fn upsert_html(conn: &Connection, plain: &str, html: &[u8]) -> Result<Option<i64>, String> {
@@ -423,8 +444,9 @@ pub fn upsert_html(conn: &Connection, plain: &str, html: &[u8]) -> Result<Option
     if plain.len() > 300 {
         preview.push('…');
     }
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
     // a plain-text entry with the same content gets upgraded to rich text
-    let dup: Option<i64> = conn
+    let dup: Option<i64> = tx
         .query_row(
             "SELECT id FROM clips WHERE content=?1 AND kind IN ('text','html')",
             [plain],
@@ -433,19 +455,22 @@ pub fn upsert_html(conn: &Connection, plain: &str, html: &[u8]) -> Result<Option
         .map(Some)
         .unwrap_or(None);
     if let Some(id) = dup {
-        conn.execute(
+        tx.execute(
             "UPDATE clips SET kind='html', use_count=use_count+1, created_at=?2, html=?3 WHERE id=?1",
             rusqlite::params![id, now(), html],
         )
         .map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
         return Ok(Some(id));
     }
-    conn.execute(
+    tx.execute(
         "INSERT INTO clips(kind, content, html, preview, use_count, created_at) VALUES('html',?1,?2,?3,1,?4)",
         rusqlite::params![plain, html, preview, now()],
     )
     .map_err(|e| e.to_string())?;
-    Ok(Some(conn.last_insert_rowid()))
+    let id = tx.last_insert_rowid();
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(Some(id))
 }
 
 pub fn get_files(conn: &Connection, id: i64) -> Result<Vec<String>, String> {

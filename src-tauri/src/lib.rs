@@ -65,6 +65,24 @@ fn apply_settings(app: &AppHandle, s: &Settings) {
         let _ = w.set_size(tauri::LogicalSize::new(380.0, s.panel_height));
     }
     win::set_autostart(s.autostart);
+    // hotkey: unregister everything and register the configured combo (the
+    // plugin-level with_handler handles the event). Falls back to Alt+V when
+    // the stored string doesn't parse; failure to register (conflict with
+    // another app) is reported to the caller UI via Err in set_settings.
+    use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
+    let g = app.global_shortcut();
+    let _ = g.unregister_all();
+    let parsed = s
+        .hotkey
+        .trim()
+        .parse::<Shortcut>()
+        .or_else(|_| "Alt+V".parse::<Shortcut>());
+    match parsed {
+        Ok(sc) => {
+            let _ = g.register(sc);
+        }
+        Err(_) => eprintln!("[cv] unparseable hotkey: {:?}", s.hotkey),
+    }
 }
 
 fn save_image(app: &AppHandle, png: &[u8]) -> Option<(String, u32, u32)> {
@@ -284,15 +302,24 @@ fn hide_panel(app: &AppHandle) {
 }
 
 #[tauri::command]
-fn report_error(msg: String) {
+fn report_error(app: AppHandle, msg: String) {
     eprintln!("[cv-js-error] {msg}");
     let line = format!("{:?} {msg}
 ", std::time::SystemTime::now());
-    let _ = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(std::env::var("APPDATA").unwrap_or_default() + "\\com.clipvault.app\\js-errors.log")
-        .and_then(|mut f| std::io::Write::write_all(&mut f, line.as_bytes()));
+    // cap the log so a failing webview can't grow it unbounded
+    if let Ok(meta) = std::fs::metadata(app.path().app_data_dir().unwrap_or_default().join("js-errors.log")) {
+        if meta.len() > 1_000_000 {
+            return;
+        }
+    }
+    if let Some(mut path) = app.path().app_data_dir().ok() {
+        path.push("js-errors.log");
+        let _ = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .and_then(|mut f| std::io::Write::write_all(&mut f, line.as_bytes()));
+    }
 }
 
 #[tauri::command]
@@ -419,7 +446,9 @@ fn paste_clip(app: AppHandle, state: tauri::State<db::Db>, id: i64) -> Result<()
         );
     }
     cvlog!("[cv] paste: sending ctrl+v");
-    win::request_paste_keystroke(target, focus);
+    if !win::request_paste_keystroke(target, focus) {
+        return Err("paste keystroke could not be delivered (injector unavailable)".into());
+    }
     cvlog!("[cv] paste: sent");
     Ok(())
 }
@@ -570,8 +599,14 @@ pub fn run() {
                 }
             }
             // resident helper process that performs the paste keystroke
-            let exe = std::env::current_exe().unwrap();
-            let _ = std::process::Command::new(exe).arg("--injector").spawn();
+            if let Ok(exe) = std::env::current_exe() {
+                use std::os::windows::process::CommandExt;
+                const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+                let _ = std::process::Command::new(exe)
+                    .arg("--injector")
+                    .creation_flags(CREATE_NO_WINDOW)
+                    .spawn();
+            }
             let h2 = app.handle().clone();
             std::thread::spawn(move || loop {
                 if win::OUTSIDE_CLICK.swap(false, Ordering::SeqCst) {
@@ -584,9 +619,11 @@ pub fn run() {
             let show = MenuItem::with_id(app, "show", "显示面板 (Alt+V)", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "退出 ClipVault", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show, &quit])?;
-            TrayIconBuilder::with_id("main")
-                .icon(app.default_window_icon().unwrap().clone())
-                .tooltip("ClipVault")
+            let mut tray = TrayIconBuilder::with_id("main");
+            if let Some(icon) = app.default_window_icon() {
+                tray = tray.icon(icon.clone());
+            }
+            tray.tooltip("ClipVault")
                 .menu(&menu)
                 .on_menu_event(|app, ev| match ev.id.as_ref() {
                     "show" => show_panel(app),
@@ -594,9 +631,8 @@ pub fn run() {
                     _ => {}
                 })
                 .build(app)?;
-            use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
-            app.global_shortcut()
-                .register("Alt+V".parse::<Shortcut>().unwrap())?;
+            // hotkey itself is registered by apply_settings above (uses the
+            // configured value; falls back to Alt+V)
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
