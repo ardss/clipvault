@@ -279,6 +279,26 @@ pub fn toggle_pin(conn: &Connection, id: i64) -> Result<(), String> {
     Ok(())
 }
 
+/// Collects the on-disk files of every row, then deletes all rows in one
+/// transaction. Files are removed by the caller (which holds no lock).
+pub fn clear_all(conn: &Connection) -> Result<Vec<EvictedFiles>, String> {
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    let victims: Vec<EvictedFiles> = {
+        let mut stmt = tx
+            .prepare("SELECT image_path, text_path FROM clips")
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok((r.get::<_, Option<String>>(0)?, r.get::<_, Option<String>>(1)?))
+            })
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?
+    };
+    tx.execute("DELETE FROM clips", []).map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(victims)
+}
+
 /// Deletes a clip row and its on-disk files: the PNG, its `_t.png` thumbnail
 /// and, for oversized text entries, the full-text side file.
 pub fn delete(conn: &Connection, id: i64) -> Result<(), String> {

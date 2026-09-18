@@ -25,6 +25,8 @@ pub struct Settings {
     pub hotkey: String,
     #[serde(default)]
     pub sensitive_keywords: Vec<String>,
+    #[serde(default)]
+    pub paused: bool,
 }
 
 fn default_hotkey() -> String {
@@ -39,6 +41,7 @@ impl Default for Settings {
             autostart: false,
             hotkey: default_hotkey(),
             sensitive_keywords: Vec::new(),
+            paused: false,
         }
     }
 }
@@ -133,6 +136,11 @@ fn handle_clipboard_change(app: &AppHandle) {
     // password managers flag sensitive copies — never record those. Writers
     // put formats on the clipboard in steps, so re-check a few times before
     // trusting a "not flagged" result
+    // capture paused from settings — copies go to the real clipboard
+    // untouched, nothing is recorded
+    if app.state::<SettingsState>().0.lock().unwrap_or_else(|p| p.into_inner()).paused {
+        return;
+    }
     for _ in 0..3 {
         if win::clipboard_marked_sensitive() {
             eprintln!("[cv] sensitive clipboard content skipped");
@@ -434,6 +442,19 @@ fn delete_clip(state: tauri::State<db::Db>, id: i64) -> Result<(), String> {
     db::delete(&state.0.lock().unwrap_or_else(|p| p.into_inner()), id)
 }
 
+/// Wipes every clip: rows plus their on-disk images, thumbnails and
+/// oversized-text side files. Returns the number of entries removed.
+#[tauri::command]
+fn clear_history(state: tauri::State<db::Db>) -> Result<usize, String> {
+    let conn = state.0.lock().unwrap_or_else(|p| p.into_inner());
+    let victims = db::clear_all(&conn)?;
+    let n = victims.len();
+    for (img, txt) in victims {
+        db::remove_clip_files(img.as_deref(), txt.as_deref());
+    }
+    Ok(n)
+}
+
 #[tauri::command]
 fn paste_clip(app: AppHandle, state: tauri::State<db::Db>, id: i64) -> Result<(), String> {
     let (kind, content, image_path) = {
@@ -699,7 +720,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             report_error, heartbeat, list_clips, stats, get_settings, set_settings, save_panel_height, toggle_pin, delete_clip,
-            paste_clip, show_panel_cmd, hide_panel_cmd
+            paste_clip, clear_history, show_panel_cmd, hide_panel_cmd
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
