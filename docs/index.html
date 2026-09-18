@@ -1,274 +1,457 @@
 <!DOCTYPE html>
-<html lang="zh-CN" data-theme="dark">
+<html lang="zh-CN" data-theme="light">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ClipVault — Windows 剪贴板历史管理器</title>
 <meta name="description" content="Windows 剪贴板历史管理器。装完 5MB，数据只存你电脑，没有账号，也不联网。">
+<meta property="og:title" content="ClipVault — 你复制过的，都在。">
+<meta property="og:description" content="Windows 剪贴板历史管理器。5MB，纯本地，零网络。">
+<meta property="og:image" content="images/og.png">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <style>
+/* ── tokens ─────────────────────────────────────────────
+   paper / ink / pencil / rule: a printed working document
+   highlighter: the marker you drag over text worth keeping
+   winblue: the one system accent everyone already knows   */
 :root {
-  --bg: #101114; --bg2: #1c1f26; --card: #191b20; --fg: #e8e9ec; --dim: #9a9ca3;
-  --dim2: #6f727a; --accent: #e8b84b; --accent2: #f0cc7a; --border: #2a2d35;
-  --warn: #e8b84b; --bad: #e5697a; --ok: #7bc47f; --gold-fg: #1a1405; --gold-btm: #b98f2e;
+  --paper: #ffffff; --paper2: #f7f7f4; --ink: #1b1d22; --pencil: #6c6f78;
+  --faint: #a2a5ad; --rule: #e9e9e4; --hl: #ffe95c; --hl-ink: #1b1d22;
+  --blue: #0067c0; --bad: #c2414f; --ok: #2e7d36;
+  --shadow: rgba(27,29,34,.14);
 }
-html[data-theme='light'] {
-  --bg: #f7f5f0; --bg2: #fffdf8; --card: #fffdf8; --fg: #26272c; --dim: #5f6168;
-  --dim2: #8e9098; --accent: #c99a2e; --accent2: #a97f1c; --border: #e3dfd4;
-  --warn: #a97f1c; --bad: #c2414f; --ok: #3d8a42; --gold-fg: #fffdf8; --gold-btm: #a97f1c;
+html[data-theme='dark'] {
+  --paper: #131417; --paper2: #1b1d22; --ink: #e9eaee; --pencil: #8b8e96;
+  --faint: #62656d; --rule: #26282e; --hl: #e3c53e; --hl-ink: #131417;
+  --blue: #5aa2e8; --bad: #e5737f; --ok: #7bc47f;
+  --shadow: rgba(0,0,0,.5);
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html { scroll-behavior: smooth; }
-body { background: var(--bg); color: var(--fg);
-  font-family: Inter, 'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei UI', 'PingFang SC', sans-serif;
-  -webkit-font-smoothing: antialiased; line-height: 1.7; }
-.wrap { max-width: 860px; margin: 0 auto; padding: 0 24px 60px; }
-a { color: var(--accent2); text-decoration: none; }
-a:hover { text-decoration: underline; }
-.topbar-btns { display: flex; gap: 8px; position: fixed; top: 14px; right: 18px; z-index: 9; }
-.tbtn { border: 1px solid var(--border); border-radius: 7px; padding: 4px 10px; font-size: 12px;
-  cursor: pointer; background: var(--bg2); color: var(--dim); display: inline-flex; align-items: center; gap: 5px; }
-.tbtn:hover { color: var(--fg); border-color: var(--dim2); }
+body {
+  background: var(--paper); color: var(--ink);
+  font-family: 'Segoe UI', 'Microsoft YaHei UI', 'PingFang SC', sans-serif;
+  -webkit-font-smoothing: antialiased; line-height: 1.75; font-size: 15px;
+  padding-bottom: 30px;
+}
+::selection { background: var(--hl); color: var(--hl-ink); }
+.wrap { max-width: 920px; margin: 0 auto; padding: 0 24px 96px; }
+a { color: var(--blue); text-decoration: none; }
+a:hover { text-decoration: underline; text-underline-offset: 3px; }
 
-.top { display: flex; align-items: center; gap: 10px; padding: 20px 0 0; }
-.top .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent);
-  box-shadow: 0 0 12px rgba(232,184,75,.7); }
-.top b { font-size: 16px; letter-spacing: .3px; }
-.top .ver { color: var(--dim2); font-size: 12.5px; }
-.top .sp { flex: 1; }
-.top nav { display: flex; gap: 18px; font-size: 13px; }
-.top nav a { color: var(--dim); }
-.top nav a:hover { color: var(--fg); text-decoration: none; }
+/* ── title bar: the page wears a window chrome ── */
+.titlebar {
+  position: sticky; top: 0; z-index: 9; background: var(--paper);
+  border-bottom: 1px solid var(--rule);
+  display: flex; align-items: center; gap: 14px; padding: 10px 24px;
+}
+.titlebar .glyph {
+  width: 22px; height: 22px; border: 2px solid var(--ink); border-radius: 5px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-family: 'Cascadia Code', Consolas, monospace; font-size: 11px; font-weight: 700;
+}
+.titlebar b { font-size: 14px; letter-spacing: .2px; }
+.titlebar .ver { color: var(--faint); font-size: 12px; font-family: 'Cascadia Code', Consolas, monospace; }
+.titlebar .sp { flex: 1; }
+.titlebar nav { display: flex; gap: 18px; font-size: 13px; }
+.titlebar nav a { color: var(--pencil); }
+.titlebar nav a:hover { color: var(--ink); text-decoration: none; }
+.winbtns { display: flex; gap: 6px; margin-left: 8px; }
+.winbtns span { width: 12px; height: 12px; border: 1.5px solid var(--faint); border-radius: 3px; }
+.winbtns span:last-child { background: var(--ink); border-color: var(--ink); }
+.tbtns { display: flex; gap: 8px; }
+.tbtn {
+  border: 1.5px solid var(--rule); padding: 3px 9px; font-size: 12px; cursor: pointer;
+  background: var(--paper); color: var(--pencil); font-family: 'Cascadia Code', Consolas, monospace;
+}
+.tbtn:hover { color: var(--ink); border-color: var(--ink); }
 
-.hero { padding: 56px 0 8px; }
-/* signature: the headline IS a clipboard entry — the app's selected row, enlarged */
-.hero-row { display: flex; gap: 18px; align-items: flex-start; max-width: 720px;
-  background: var(--bg2); border: 1px solid var(--border); border-left: 3px solid var(--accent);
-  border-radius: 10px; padding: 24px 26px 22px; }
-.kind-chip { flex-shrink: 0; width: 34px; height: 34px; border-radius: 8px; background: var(--card);
-  border: 1px solid var(--border); display: flex; align-items: center; justify-content: center;
-  font-family: Consolas, 'Cascadia Mono', monospace; font-size: 13px; color: var(--dim); margin-top: 6px; }
-.hero-row .body { flex: 1; min-width: 0; }
-.hero h1 { font-size: 38px; line-height: 1.22; letter-spacing: -.8px; font-weight: 700; }
-.hero .fact { color: var(--dim); font-size: 15px; margin: 12px 0 0; }
-.row-meta { flex-shrink: 0; display: flex; align-items: center; gap: 6px;
-  font-family: Consolas, 'Cascadia Mono', monospace; font-size: 12px; color: var(--dim2); margin-top: 10px; }
-.row-meta svg { color: var(--accent); }
-.btnrow { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
-.btn { display: inline-block; font-size: 14.5px; font-weight: 600; border-radius: 9px;
-  padding: 11px 22px; cursor: pointer; border: 1px solid transparent; }
-.btn:hover { text-decoration: none; }
-.btn.gold { background: var(--accent); color: var(--gold-fg); border-bottom: 3px solid var(--gold-btm); }
-.btn.gold:hover { filter: brightness(1.06); }
-.btn.ghost { border-color: var(--border); color: var(--dim); }
-.btn.ghost:hover { color: var(--fg); border-color: var(--dim2); }
-.btnrow .note { color: var(--dim2); font-size: 12.5px; }
+/* ── hero ── */
+.hero { display: grid; grid-template-columns: 1.2fr .8fr; gap: 48px; align-items: center; padding: 84px 0 56px; }
+h1 {
+  font-family: 'Noto Serif SC', 'Source Han Serif SC', SimSun, serif;
+  font-weight: 900; font-size: 56px; line-height: 1.3; letter-spacing: .01em;
+}
+h1 .marked { position: relative; white-space: nowrap; }
+h1 .marked::before {
+  content: ''; position: absolute; left: -3px; right: -3px; bottom: 8px; height: .32em;
+  background: var(--hl); z-index: -1; transform: skewX(-8deg);
+}
+.hero .fact { color: var(--pencil); font-size: 16px; margin: 22px 0 0; max-width: 38em; }
+.hero .fact b { color: var(--ink); font-weight: 600; }
 
-h2 { font-size: 21px; margin: 64px 0 18px; letter-spacing: -.3px; }
-h2 .en { color: var(--dim2); font-size: 12.5px; font-weight: 400; margin-left: 10px; }
+.btnrow { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; margin-top: 34px; }
+.btn {
+  display: inline-block; font-size: 15px; font-weight: 600; cursor: pointer;
+  padding: 11px 24px; border: 2px solid var(--ink); color: var(--ink);
+  background: var(--paper); box-shadow: 4px 4px 0 var(--shadow); text-decoration: none;
+  transition: transform .08s ease, box-shadow .08s ease;
+}
+.btn:hover { text-decoration: none; transform: translate(-1px,-1px); box-shadow: 6px 6px 0 var(--shadow); }
+.btn:active { transform: translate(2px,2px); box-shadow: 1px 1px 0 var(--shadow); }
+.btn.hl { background: var(--hl); color: var(--hl-ink); }
+.btnrow .note { color: var(--faint); font-size: 12.5px; font-family: 'Cascadia Code', Consolas, monospace; }
+
+.hero-art { position: relative; justify-self: end; width: 100%; max-width: 320px; margin-top: -12px; }
+.hero-art img { display: block; width: 100%; height: auto; }
+/* signature: marching-ants selection frame around the artwork */
+.ants { position: absolute; inset: -14px; width: calc(100% + 28px); height: calc(100% + 28px); pointer-events: none; }
+.ants .frame {
+  fill: none; stroke: var(--ink); stroke-width: 1.6; stroke-dasharray: 7 6;
+  animation: ants 1.2s linear infinite;
+}
+@keyframes ants { to { stroke-dashoffset: -26; } }
+.ants .handle { fill: var(--paper); stroke: var(--ink); stroke-width: 1.4; }
+.hero-cap {
+  position: absolute; left: -8px; bottom: -34px;
+  font-family: 'Cascadia Code', Consolas, monospace; font-size: 11px; color: var(--faint);
+}
+
+/* ── sections: a document with ruled chapters ── */
+section { border-top: 1px solid var(--rule); margin-top: 72px; padding-top: 40px; }
+.eyebrow {
+  font-family: 'Cascadia Code', Consolas, monospace; font-size: 12.5px; color: var(--blue);
+  letter-spacing: .06em; display: block; margin-bottom: 10px;
+}
+h2 {
+  font-family: 'Noto Serif SC', 'Source Han Serif SC', SimSun, serif;
+  font-weight: 900; font-size: 30px; letter-spacing: .01em; margin-bottom: 26px;
+}
+h2 .en { color: var(--faint); font-size: 13px; font-weight: 400; margin-left: 12px;
+  font-family: 'Cascadia Code', Consolas, monospace; letter-spacing: .04em; }
+
+/* steps — a real sequence, so numbered */
 .steps { counter-reset: s; }
-.step { display: flex; gap: 16px; align-items: baseline; padding: 10px 0; font-size: 15px; }
-.step::before { counter-increment: s; content: counter(s); flex-shrink: 0;
-  width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--accent);
-  color: var(--accent); font-size: 13px; font-weight: 700;
-  display: flex; align-items: center; justify-content: center; transform: translateY(4px); }
+.step { display: flex; gap: 18px; align-items: baseline; padding: 13px 4px; font-size: 16px; border-bottom: 1px dashed var(--rule); }
+.step:last-child { border-bottom: 0; }
+.step::before {
+  counter-increment: s; content: counter(s) '.'; flex-shrink: 0; width: 2em;
+  font-family: 'Cascadia Code', Consolas, monospace; font-weight: 700; color: var(--blue);
+}
+.kbd {
+  display: inline-block; font-size: 13px; font-weight: 600; border: 1.5px solid var(--ink);
+  border-bottom-width: 3px; border-radius: 5px; padding: 2px 10px; background: var(--paper2);
+  white-space: nowrap; font-family: 'Cascadia Code', Consolas, monospace;
+}
 
-.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
-.card { background: var(--card); border: 1px solid var(--border); border-radius: 11px; padding: 18px 20px; }
-.card h3 { font-size: 15.5px; margin-bottom: 6px; }
-.card p { color: var(--dim); font-size: 13.5px; }
+/* features — laid out as clipboard entries, like the product itself */
+.kinds { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+.kinds span {
+  font-family: 'Cascadia Code', Consolas, monospace; font-size: 12px; color: var(--pencil);
+  border: 1px solid var(--rule); padding: 2px 12px; border-radius: 999px;
+}
+.kinds span.on { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.entries { border-top: 1px solid var(--rule); }
+.entry {
+  display: flex; gap: 18px; padding: 18px 14px; border-bottom: 1px solid var(--rule);
+  border-left: 3px solid transparent; align-items: baseline;
+}
+.entry:hover { border-left-color: var(--blue); background: var(--paper2); }
+.entry .chip {
+  flex-shrink: 0; width: 44px; text-align: center; align-self: center;
+  font-family: 'Cascadia Code', Consolas, monospace; font-size: 12px; color: var(--pencil);
+}
+.entry .body { flex: 1; min-width: 0; }
+.entry h3 { font-size: 16.5px; font-weight: 600; }
+.entry p { color: var(--pencil); font-size: 13.5px; margin-top: 3px; }
+.entry .meta {
+  flex-shrink: 0; font-family: 'Cascadia Code', Consolas, monospace; font-size: 11.5px; color: var(--faint);
+}
+.entry.pinned .meta b { color: var(--blue); font-weight: 600; }
 
 /* demo */
-.demo-box { background: var(--card); border: 1px solid var(--border); border-radius: 14px;
-  padding: 26px; display: flex; gap: 28px; align-items: center; flex-wrap: wrap; }
-.demo-side { flex: 1; min-width: 240px; }
-.demo-side p { color: var(--dim); font-size: 13.5px; margin-bottom: 14px; }
-.phone { width: 380px; height: 600px; border: 1px solid var(--border); border-radius: 12px;
-  overflow: hidden; box-shadow: 0 18px 50px rgba(0,0,0,.35); flex-shrink: 0; background: var(--bg2); }
-.phone iframe { width: 100%; height: 100%; border: 0; }
-.demo-note { color: var(--dim2); font-size: 12px; margin-top: 12px; }
-
-.priv { background: var(--card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; margin-top: 20px; }
-.priv .half { padding: 20px 24px; }
-.priv .half + .half { border-top: 1px dashed var(--border); }
-.priv h3 { font-size: 15px; margin-bottom: 8px; }
-.priv ul { list-style: none; }
-.priv li { padding: 3px 0 3px 22px; position: relative; font-size: 13.5px; color: var(--dim); }
-.priv li::before { content: ''; position: absolute; left: 2px; top: 11px; width: 8px; height: 8px; border-radius: 50%; }
-.priv .yes li::before { background: var(--ok); }
-.priv .no li::before { background: var(--warn); }
-.priv .yes li b { color: var(--fg); font-weight: 600; }
-
-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
-td, th { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
-th { color: var(--dim); font-weight: 600; font-size: 12px; }
-.kbd { display: inline-block; font-size: 12.5px; font-weight: 600; border: 1px solid var(--border);
-  border-bottom-width: 2px; border-radius: 6px; padding: 3px 10px; background: var(--bg2); white-space: nowrap; }
-code { font-family: Consolas, 'Cascadia Mono', monospace; font-size: 12.5px;
-  background: var(--bg2); border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; }
-.path { font-family: Consolas, monospace; font-size: 12px; background: var(--bg2);
-  border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px;
-  display: block; margin: 8px 0; word-break: break-all; color: var(--accent2); user-select: text; }
-li { margin: 6px 0 6px 20px; font-size: 13.5px; }
-ul.plain li { list-style: none; margin-left: 0; }
-.bad { color: var(--bad); }
-.warn { color: var(--warn); }
-.ok { color: var(--ok); }
-.ki-note { color: var(--dim2); font-size: 12.5px; margin-bottom: 10px; }
-
-details { border: 1px solid var(--border); border-radius: 10px; margin: 12px 0; background: var(--card); }
-details summary { cursor: pointer; padding: 13px 18px; font-size: 14.5px; font-weight: 600; list-style: none; }
-details summary::before { content: '▸ '; color: var(--accent); }
-details[open] summary::before { content: '▾ '; }
-details .inner { padding: 4px 18px 16px; }
-
-.footer { margin-top: 70px; color: var(--dim2); font-size: 12px; text-align: center;
-  border-top: 1px solid var(--border); padding-top: 24px; }
-@media (max-width: 640px) {
-  .hero h1 { font-size: 27px; } .top nav { display: none; } .top { padding-top: 16px; }
-  .phone { width: 100%; height: 540px; } .demo-box { padding: 18px; }
-  .hero-row { flex-direction: column; gap: 12px; padding: 18px 20px; }
-  .kind-chip { margin-top: 0; } .row-meta { margin-top: 0; }
+.demo-grid { display: flex; gap: 36px; align-items: center; flex-wrap: wrap; }
+.demo-side { flex: 1; min-width: 250px; }
+.demo-side p { color: var(--pencil); font-size: 14px; margin-bottom: 18px; }
+.demo-side p b { color: var(--ink); }
+.demo-note { color: var(--faint); font-size: 12px; margin-top: 12px; font-family: 'Cascadia Code', Consolas, monospace; }
+.phone {
+  width: 380px; height: 600px; border: 2px solid var(--ink); border-radius: 10px;
+  overflow: hidden; box-shadow: 6px 6px 0 var(--shadow); flex-shrink: 0; background: var(--paper);
 }
-:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
-@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } * { animation: none !important; } }
+.phone iframe { width: 100%; height: 100%; border: 0; }
+
+/* privacy — entries that never entered history */
+.priv-grid { display: grid; grid-template-columns: 1fr 1fr; border: 1.5px solid var(--ink); }
+.priv-half { padding: 24px 26px; }
+.priv-half + .priv-half { border-left: 1.5px dashed var(--rule); }
+.priv-half h3 { font-size: 15px; margin-bottom: 12px; display: flex; align-items: center; gap: 12px; }
+.stamp {
+  font-family: 'Cascadia Code', Consolas, monospace; font-size: 11px; font-weight: 700;
+  border: 2px solid currentColor; border-radius: 4px; padding: 1px 8px;
+  transform: rotate(-4deg); letter-spacing: .1em; flex-shrink: 0;
+}
+.priv-half ul { list-style: none; }
+.priv-half li { padding: 5px 0 5px 20px; position: relative; font-size: 13.5px; color: var(--pencil); }
+.priv-half li::before { content: ''; position: absolute; left: 2px; top: 14px; width: 8px; height: 3px; }
+.priv-half.yes li::before { background: var(--ok); }
+.priv-half.no li::before { background: var(--bad); }
+.priv-half li b { color: var(--ink); font-weight: 600; }
+.priv-half.yes h3 { color: var(--ok); }
+.priv-half.no h3 { color: var(--bad); }
+
+/* known issues — a plain log */
+.log {
+  font-family: 'Cascadia Code', Consolas, monospace; font-size: 13px; line-height: 1.6;
+  background: var(--paper2); border: 1.5px solid var(--rule); padding: 12px 24px;
+}
+.log .ln { display: flex; gap: 14px; padding: 9px 0; }
+.log .ln + .ln { border-top: 1px solid var(--rule); }
+.log .tag { flex-shrink: 0; width: 2.6em; color: var(--faint); }
+.log .ln.bad .tag { color: var(--bad); font-weight: 700; }
+.log .ln.bad .txt { color: var(--bad); }
+.log .txt { color: var(--pencil); }
+
+/* manual */
+details { border-bottom: 1px solid var(--rule); }
+details summary {
+  cursor: pointer; padding: 15px 4px; font-size: 15.5px; font-weight: 600; list-style: none;
+  display: flex; align-items: center; gap: 12px;
+}
+details summary::-webkit-details-marker { display: none; }
+details summary::before { content: '▸'; color: var(--blue); font-family: 'Cascadia Code', Consolas, monospace; }
+details[open] summary::before { content: '▾'; }
+details .inner { padding: 4px 4px 22px; }
+table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+td, th { padding: 8px 10px; text-align: left; border-bottom: 1px dashed var(--rule); vertical-align: top; }
+th { color: var(--faint); font-weight: 600; font-size: 11.5px; font-family: 'Cascadia Code', Consolas, monospace; letter-spacing: .06em; }
+code { font-family: 'Cascadia Code', Consolas, monospace; font-size: 12.5px;
+  background: var(--paper2); border: 1px solid var(--rule); padding: 1px 6px; }
+.path {
+  font-family: 'Cascadia Code', Consolas, monospace; font-size: 12.5px; background: var(--paper2);
+  border: 1.5px dashed var(--ink); padding: 9px 12px; display: inline-block; margin: 10px 0;
+  word-break: break-all; color: var(--ink); user-select: all;
+}
+.inner ul { list-style: none; }
+.inner ul li { padding: 3px 0; font-size: 13.5px; color: var(--pencil); }
+.inner ul li b { color: var(--ink); font-weight: 600; }
+.inner h3 { font-family: 'Cascadia Code', Consolas, monospace; font-size: 13px; margin: 6px 0; }
+
+/* footer: the panel's status bar */
+.statusbar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 9;
+  background: var(--ink); color: var(--paper);
+  font-family: 'Cascadia Code', Consolas, monospace; font-size: 11.5px;
+  display: flex; gap: 22px; padding: 5px 24px; letter-spacing: .03em;
+}
+.statusbar .sp { flex: 1; }
+.statusbar .ok-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--hl); margin-right: 6px; }
+.footer { margin-top: 80px; color: var(--faint); font-size: 12.5px; }
+
+@media (max-width: 760px) {
+  .hero { grid-template-columns: 1fr; gap: 44px; padding-top: 56px; }
+  .hero-art { justify-self: start; max-width: 240px; margin-top: 0; }
+  h1 { font-size: 38px; }
+  .titlebar nav { display: none; }
+  .priv-grid { grid-template-columns: 1fr; }
+  .priv-half + .priv-half { border-left: 0; border-top: 1.5px dashed var(--rule); }
+  .phone { width: 100%; height: 540px; }
+  .entry .meta { display: none; }
+}
+:focus-visible { outline: 2.5px solid var(--blue); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .ants .frame { animation: none; }
+  * { transition: none !important; }
+}
 </style>
 </head>
 <body>
-<div class="topbar-btns">
-  <button class="tbtn" id="themeBtn" onclick="toggleTheme()" aria-label="theme"></button>
-  <button class="tbtn" id="langBtn" onclick="toggleLang()">EN</button>
+
+<div class="titlebar">
+  <span class="glyph">CV</span><b>ClipVault</b><span class="ver" data-i18n="ver">v0.1.0 · Windows</span>
+  <span class="sp"></span>
+  <nav>
+    <a href="#how" data-i18n="n_how">上手</a>
+    <a href="#features" data-i18n="n_feat">功能</a>
+    <a href="#demo" data-i18n="n_demo">在线试用</a>
+    <a href="#privacy" data-i18n="n_priv">隐私</a>
+    <a href="#manual" data-i18n="n_man">手册</a>
+  </nav>
+  <div class="tbtns">
+    <button class="tbtn" id="themeBtn" onclick="toggleTheme()" aria-label="theme"></button>
+    <button class="tbtn" id="langBtn" onclick="toggleLang()">EN</button>
+  </div>
+  <div class="winbtns" aria-hidden="true"><span></span><span></span><span></span></div>
 </div>
+
 <div class="wrap">
 
-  <div class="top">
-    <span class="dot"></span><b>ClipVault</b><span class="ver" data-i18n="ver">v0.1.0 · Windows</span>
-    <span class="sp"></span>
-    <nav>
-      <a href="#how" data-i18n="n_how">上手</a>
-      <a href="#features" data-i18n="n_feat">功能</a>
-      <a href="#demo" data-i18n="n_demo">在线试用</a>
-      <a href="#privacy" data-i18n="n_priv">隐私</a>
-      <a href="#manual" data-i18n="n_man">手册</a>
-    </nav>
-  </div>
-
   <div class="hero">
-    <div class="hero-row">
-      <span class="kind-chip">Aa</span>
-      <div class="body">
-        <h1 data-i18n="h1">你复制过的，都在。</h1>
-        <p class="fact" data-i18n="fact">Windows 剪贴板历史管理器。装完 5MB，数据只存你电脑，没有账号，也不联网。</p>
+    <div>
+      <h1 data-i18n-html="h1">你<span class="marked">复制</span>过的，<br>都在。</h1>
+      <p class="fact" data-i18n-html="fact">Windows 剪贴板历史管理器。装完 <b>5MB</b>，数据只存你电脑，<b>没有账号，也不联网</b>。</p>
+      <div class="btnrow">
+        <a class="btn hl" href="https://github.com/ardss/clipvault/releases" data-i18n="dl">下载 Windows 版</a>
+        <a class="btn" href="#demo" data-i18n="try_demo">先在网页里试试</a>
+        <span class="note" data-i18n="dl_note">Win 10/11 · ~5MB · 免费</span>
       </div>
-      <span class="row-meta">
-        <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>
-        <span data-i18n="h_meta">刚刚 · 已去重</span>
-      </span>
     </div>
-    <div class="btnrow" style="margin-top: 24px;">
-      <a class="btn gold" href="https://github.com/ardss/clipvault/releases" data-i18n="dl">下载 Windows 版</a>
-      <a class="btn ghost" href="#demo" data-i18n="try_demo">先在网页里试试</a>
-      <span class="note" data-i18n="dl_note">Windows 10 / 11 · 约 5MB · 免费</span>
-    </div>
+    <figure class="hero-art">
+      <img src="images/hero-art.png" alt="" width="1024" height="1024">
+      <svg class="ants" aria-hidden="true">
+        <rect class="frame" x="1" y="1" width="calc(100% - 2px)" height="calc(100% - 2px)"/>
+        <rect class="handle" x="0" y="0" width="8" height="8"/>
+        <rect class="handle" x="100%" y="0" width="8" height="8" transform="translate(-8,0)"/>
+        <rect class="handle" x="0" y="100%" width="8" height="8" transform="translate(0,-8)"/>
+        <rect class="handle" x="100%" y="100%" width="8" height="8" transform="translate(-8,-8)"/>
+      </svg>
+      <figcaption class="hero-cap" data-i18n="hero_cap">// 刚刚复制 · 已去重</figcaption>
+    </figure>
   </div>
 
-  <h2 id="how"><span data-i18n="h_how">三步上手</span> <span class="en" data-i18n="h_how_en">Steps</span></h2>
-  <div class="steps">
-    <div class="step" data-i18n="s1">照常复制，内容自动进历史</div>
-    <div class="step"><span class="kbd">Alt + V</span>&nbsp;<span data-i18n="s2">呼出面板，打几个字找到那条</span></div>
-    <div class="step"><span class="kbd">Enter</span>&nbsp;<span data-i18n="s3">粘贴回原来的窗口</span></div>
-  </div>
-
-  <h2 id="features"><span data-i18n="h_feat">它能帮你做什么</span> <span class="en" data-i18n="h_feat_en">Features</span></h2>
-  <div class="cards">
-    <div class="card"><h3 data-i18n="c1t">打几个字，找到那条</h3><p data-i18n="c1p">搜索按内容匹配，不用记得是从哪个网页、哪个文档复制的。</p></div>
-    <div class="card"><h3 data-i18n="c2t">复制十次，只留一条</h3><p data-i18n="c2p">同样的内容不重复占地方，只把时间挪到最近一次。</p></div>
-    <div class="card"><h3 data-i18n="c3t">截图、文件、长文本</h3><p data-i18n="c3p">图片有缩略图，多选文件整组记，超长内容转存成文件，一个字都不会丢。</p></div>
-    <div class="card"><h3 data-i18n="c4t">贴出去不花</h3><p data-i18n="c4p">图片贴进浏览器、Office 都是好的；富文本、链接、文件路径各走各的，不会串。</p></div>
-  </div>
-
-  <h2 id="demo"><span data-i18n="h_demo">先在网页里试试</span> <span class="en" data-i18n="h_demo_en">Live demo</span></h2>
-  <div class="demo-box">
-    <div class="demo-side">
-      <p data-i18n="demo_p">这就是真实的 ClipVault 面板，跑在你的浏览器里。可以搜索、切换分类、置顶、删除、看统计——数据保存在浏览器的 localStorage，清除站点数据时才会重置。</p>
-      <button class="btn gold" id="demoCopy" onclick="demoCopy()" data-i18n="demo_btn">模拟复制一条新内容</button>
-      <p class="demo-note" data-i18n="demo_note">实际使用中，这一步由 Ctrl+C 完成，不用点任何按钮。</p>
+  <section id="how">
+    <span class="eyebrow" data-i18n="e_how">// 上手</span>
+    <h2>三步，然后忘掉它的存在<span class="en">steps</span></h2>
+    <div class="steps">
+      <div class="step" data-i18n="s1">照常复制，内容自动进历史</div>
+      <div class="step"><span class="kbd">Alt + V</span><span data-i18n="s2">呼出面板，打几个字找到那条</span></div>
+      <div class="step"><span class="kbd">Enter</span><span data-i18n="s3">粘贴回原来的窗口</span></div>
     </div>
-    <div class="phone"><iframe id="demoFrame" src="demo/index.html" title="ClipVault demo"></iframe></div>
-  </div>
+  </section>
 
-  <h2 id="privacy"><span data-i18n="h_priv">复制密码，它不记住</span> <span class="en">Privacy</span></h2>
-  <div class="priv">
-    <div class="half yes">
-      <h3 class="ok" data-i18n="pr_t">它防什么</h3>
-      <ul>
-        <li data-i18n="pr1"><b>密码管理器复制的密码，直接跳过</b>——Bitwarden / 1Password / KeePass 会给这类复制打敏感标记，我们认这个标记</li>
-        <li data-i18n="pr2"><b>过滤词自己加</b>——比如 token、api-key 开头的内容，命中就不记录</li>
-        <li data-i18n="pr3"><b>不联网</b>——没有账号，没有云同步，没有遥测</li>
-      </ul>
+  <section id="features">
+    <span class="eyebrow" data-i18n="e_feat">// 功能</span>
+    <h2>它帮你记住的<span class="en">what it keeps</span></h2>
+    <div class="kinds" aria-hidden="true">
+      <span class="on" data-i18n="t_all">全部</span><span data-i18n="t_text">文本</span><span data-i18n="t_image">图片</span><span data-i18n="t_link">链接</span><span data-i18n="t_file">文件</span>
     </div>
-    <div class="half no">
-      <h3 class="warn" data-i18n="pb_t">它不防什么</h3>
-      <ul>
-        <li data-i18n="pb1">除上面两条之外，所有内容<b>明文存在本机，不加密</b>。它不是保险箱。</li>
-        <li data-i18n="pb2">介意明文存储的话，别把敏感内容交给它。</li>
-      </ul>
+    <div class="entries">
+      <div class="entry pinned">
+        <span class="chip">Aa</span>
+        <div class="body">
+          <h3 data-i18n="c1t">打几个字，找到那条</h3>
+          <p data-i18n="c1p">搜索按内容匹配，不用记得是从哪个网页、哪个文档复制的。</p>
+        </div>
+        <span class="meta">📌 <b data-i18n="m_pin">已置顶</b></span>
+      </div>
+      <div class="entry">
+        <span class="chip">≡</span>
+        <div class="body">
+          <h3 data-i18n="c2t">复制十次，只留一条</h3>
+          <p data-i18n="c2p">同样的内容不重复占地方，只把时间挪到最近一次。</p>
+        </div>
+        <span class="meta" data-i18n="m_now">刚刚</span>
+      </div>
+      <div class="entry">
+        <span class="chip">png</span>
+        <div class="body">
+          <h3 data-i18n="c3t">截图、文件、长文本</h3>
+          <p data-i18n="c3p">图片有缩略图，多选文件整组记，超长内容转存成文件，一个字都不会丢。</p>
+        </div>
+        <span class="meta" data-i18n="m_min">3 分钟前</span>
+      </div>
+      <div class="entry">
+        <span class="chip">RTF</span>
+        <div class="body">
+          <h3 data-i18n="c4t">贴出去不花</h3>
+          <p data-i18n="c4p">图片贴进浏览器、Office 都是好的；富文本、链接、文件路径各走各的，不会串。</p>
+        </div>
+        <span class="meta" data-i18n="m_yday">昨天</span>
+      </div>
     </div>
-  </div>
+  </section>
 
-  <h2><span data-i18n="h_known">已知问题</span> <span class="en">Known issues</span></h2>
-  <p class="ki-note" data-i18n="ki_note">这些是我们知道的毛病，装之前先告诉你。</p>
-  <ul class="plain">
-    <li data-i18n="ki1">呼出面板的瞬间会短暂打断打字（面板要接管键盘焦点才能搜索，同类工具都有这个问题）</li>
-    <li data-i18n="ki2">热键默认 Alt+V，可在设置里改；跟部分 IDE、输入法可能冲突</li>
-    <li data-i18n="ki3">粘贴靠一个常驻的小进程按键完成，个别杀软可能提示（属正常行为）</li>
-    <li data-i18n="ki4">搜索不支持拼音和模糊匹配</li>
-    <li class="bad" data-i18n="ki5">除密码管理器外，其他敏感内容是明文存储——别把它当保险箱</li>
-  </ul>
+  <section id="demo">
+    <span class="eyebrow" data-i18n="e_demo">// 在线试用</span>
+    <h2>先在网页里试试<span class="en">live demo</span></h2>
+    <div class="demo-grid">
+      <div class="demo-side">
+        <p data-i18n-html="demo_p">这就是<b>真实的 ClipVault 面板</b>，跑在你的浏览器里。可以搜索、切换分类、置顶、删除、看统计——数据保存在浏览器的 localStorage，清除站点数据时才会重置。</p>
+        <button class="btn hl" id="demoCopy" onclick="demoCopy()" data-i18n="demo_btn">模拟复制一条新内容</button>
+        <p class="demo-note" data-i18n="demo_note">实际使用中，这一步由 Ctrl+C 完成，不用点任何按钮。</p>
+      </div>
+      <div class="phone"><iframe id="demoFrame" src="demo/index.html" title="ClipVault demo"></iframe></div>
+    </div>
+  </section>
 
-  <h2 id="manual"><span data-i18n="h_man">使用手册</span> <span class="en" data-i18n="h_man_en">Reference</span></h2>
-  <details>
-    <summary data-i18n="m_keys">快捷键</summary>
-    <div class="inner">
-      <table>
-        <tr><th><span data-i18n="th_key">按键</span></th><th><span data-i18n="th_action">作用</span></th></tr>
-        <tr><td><span class="kbd">Alt + V</span></td><td data-i18n="k1">呼出 / 隐藏面板（贴着鼠标弹出）</td></tr>
-        <tr><td><span class="kbd" data-i18n="k2_key">打字</span></td><td data-i18n="k2">搜索（搜的是内容，不只是标题）</td></tr>
-        <tr><td><span class="kbd">↑ / ↓</span></td><td data-i18n="k3">在条目间移动</td></tr>
-        <tr><td><span class="kbd">Enter</span></td><td data-i18n="k4">粘贴选中项到之前的窗口</td></tr>
-        <tr><td><span class="kbd">Del</span></td><td data-i18n="k5">删除选中项</td></tr>
-        <tr><td><span class="kbd">Esc</span></td><td data-i18n="k6">清空搜索 → 关闭面板</td></tr>
-        <tr><td><span class="kbd" data-i18n="k7_key">鼠标悬停</span></td><td data-i18n="k7">长文本看全文，图片看大图（可划选复制）</td></tr>
-      </table>
+  <section id="privacy">
+    <span class="eyebrow" data-i18n="e_priv">// 隐私</span>
+    <h2>复制密码，它不记住<span class="en">privacy</span></h2>
+    <div class="priv-grid">
+      <div class="priv-half yes">
+        <h3><span class="stamp" data-i18n="st_no">不记录</span><span data-i18n="pr_t">它防什么</span></h3>
+        <ul>
+          <li data-i18n-html="pr1"><b>密码管理器复制的密码，直接跳过</b>——Bitwarden / 1Password / KeePass 会给这类复制打敏感标记，我们认这个标记</li>
+          <li data-i18n-html="pr2"><b>过滤词自己加</b>——比如 token、api-key 开头的内容，命中就不记录</li>
+          <li data-i18n-html="pr3"><b>不联网</b>——没有账号，没有云同步，没有遥测</li>
+        </ul>
+      </div>
+      <div class="priv-half no">
+        <h3><span class="stamp" data-i18n="st_plain">明文</span><span data-i18n="pb_t">它不防什么</span></h3>
+        <ul>
+          <li data-i18n-html="pb1">除上面两条之外，所有内容<b>明文存在本机，不加密</b>。它不是保险箱。</li>
+          <li data-i18n-html="pb2">介意明文存储的话，别把敏感内容交给它。</li>
+        </ul>
+      </div>
     </div>
-  </details>
-  <details>
-    <summary data-i18n="m_data">数据在哪</summary>
-    <div class="inner">
-      <p data-i18n="data_p">所有数据都在下面这个目录里。备份 = 复制整个文件夹；彻底清除 = 删掉它。</p>
-      <span class="path">%APPDATA%\com.clipvault.app\</span>
-      <ul>
-        <li><code>clips.db</code> — <span data-i18n="d1">历史记录（SQLite，明文）</span></li>
-        <li><code>images\</code> — <span data-i18n="d2">图片条目的 PNG 文件</span></li>
-        <li><code>settings.json</code> — <span data-i18n="d3">历史上限 / 面板高度 / 开机自启</span></li>
-        <li><code>js-errors.log</code> — <span data-i18n="d4">界面报错记录（排查问题时发这个）</span></li>
-      </ul>
-    </div>
-  </details>
-  <details>
-    <summary data-i18n="m_log">变更日志</summary>
-    <div class="inner">
-      <h3>v0.1.0</h3>
-      <ul>
-        <li data-i18n="ch1">首个公开版本：文本/图片/文件/富文本/链接的记录与去重</li>
-        <li data-i18n="ch2">搜索、置顶、分类、键盘导航、悬停预览、统计</li>
-        <li data-i18n="ch3">贴回原窗口、深浅色、中英文、托盘、可选开机自启</li>
-        <li data-i18n="ch4">密码管理器的敏感复制自动跳过；面板假死自动恢复</li>
-      </ul>
-    </div>
-  </details>
+  </section>
 
-  <p class="footer">ClipVault · <span data-i18n="f_open">开源 · 本地运行 · 不联网</span> · <a href="https://github.com/ardss/clipvault" data-i18n="f_gh">GitHub</a></p>
+  <section id="known">
+    <span class="eyebrow" data-i18n="e_ki">// 已知问题</span>
+    <h2>装之前，先告诉你毛病<span class="en">known issues</span></h2>
+    <div class="log">
+      <div class="ln"><span class="tag">[!]</span><span class="txt" data-i18n="ki1">呼出面板的瞬间会短暂打断打字（面板要接管键盘焦点才能搜索，同类工具都有这个问题）</span></div>
+      <div class="ln"><span class="tag">[!]</span><span class="txt" data-i18n="ki2">热键默认 Alt+V，可在设置里改；跟部分 IDE、输入法可能冲突</span></div>
+      <div class="ln"><span class="tag">[!]</span><span class="txt" data-i18n="ki3">粘贴靠一个常驻的小进程按键完成，个别杀软可能提示（属正常行为）</span></div>
+      <div class="ln"><span class="tag">[!]</span><span class="txt" data-i18n="ki4">搜索不支持拼音和模糊匹配</span></div>
+      <div class="ln bad"><span class="tag">[!!]</span><span class="txt" data-i18n="ki5">除密码管理器外，其他敏感内容是明文存储——别把它当保险箱</span></div>
+    </div>
+  </section>
+
+  <section id="manual">
+    <span class="eyebrow" data-i18n="e_man">// 手册</span>
+    <h2>使用手册<span class="en">reference</span></h2>
+    <details>
+      <summary data-i18n="m_keys">快捷键</summary>
+      <div class="inner">
+        <table>
+          <tr><th><span data-i18n="th_key">按键</span></th><th><span data-i18n="th_action">作用</span></th></tr>
+          <tr><td><span class="kbd">Alt + V</span></td><td data-i18n="k1">呼出 / 隐藏面板（贴着鼠标弹出）</td></tr>
+          <tr><td><span class="kbd" data-i18n="k2_key">打字</span></td><td data-i18n="k2">搜索（搜的是内容，不只是标题）</td></tr>
+          <tr><td><span class="kbd">↑ / ↓</span></td><td data-i18n="k3">在条目间移动</td></tr>
+          <tr><td><span class="kbd">Enter</span></td><td data-i18n="k4">粘贴选中项到之前的窗口</td></tr>
+          <tr><td><span class="kbd">Del</span></td><td data-i18n="k5">删除选中项</td></tr>
+          <tr><td><span class="kbd">Esc</span></td><td data-i18n="k6">清空搜索 → 关闭面板</td></tr>
+          <tr><td><span class="kbd" data-i18n="k7_key">鼠标悬停</span></td><td data-i18n="k7">长文本看全文，图片看大图（可划选复制）</td></tr>
+        </table>
+      </div>
+    </details>
+    <details>
+      <summary data-i18n="m_data">数据在哪</summary>
+      <div class="inner">
+        <p style="color: var(--pencil); font-size: 13.5px;" data-i18n="data_p">所有数据都在下面这个目录里。备份 = 复制整个文件夹；彻底清除 = 删掉它。</p>
+        <span class="path">%APPDATA%\com.clipvault.app\</span>
+        <ul>
+          <li><code>clips.db</code> — <span data-i18n="d1">历史记录（SQLite，明文）</span></li>
+          <li><code>images\</code> — <span data-i18n="d2">图片条目的 PNG 文件</span></li>
+          <li><code>settings.json</code> — <span data-i18n="d3">历史上限 / 热键 / 过滤词 / 开机自启</span></li>
+          <li><code>js-errors.log</code> — <span data-i18n="d4">界面报错记录（排查问题时发这个）</span></li>
+        </ul>
+      </div>
+    </details>
+    <details>
+      <summary data-i18n="m_log">变更日志</summary>
+      <div class="inner">
+        <h3>v0.1.0</h3>
+        <ul>
+          <li data-i18n="ch1">首个公开版本：文本/图片/文件/富文本/链接的记录与去重</li>
+          <li data-i18n="ch2">搜索、置顶、分类、键盘导航、悬停预览、统计</li>
+          <li data-i18n="ch3">贴回原窗口、深浅色、中英文、托盘、可选开机自启</li>
+          <li data-i18n="ch4">密码管理器的敏感复制自动跳过；面板假死自动恢复</li>
+        </ul>
+      </div>
+    </details>
+    <p class="footer">ClipVault · <span data-i18n="f_open">开源 · 本地运行 · 不联网</span> · <a href="https://github.com/ardss/clipvault" data-i18n="f_gh">GitHub</a></p>
+  </section>
+
+</div>
+
+<div class="statusbar" aria-hidden="true">
+  <span><span class="ok-dot"></span><span data-i18n="sb1">0 KB 已上传</span></span>
+  <span data-i18n="sb2">无网络连接</span>
+  <span class="sp"></span>
+  <span data-i18n="sb3">1 个进程常驻 · 约 5 MB 内存</span>
 </div>
 
 <script>
@@ -276,15 +459,15 @@ const I18N = {
   zh: {
     ver: 'v0.1.0 · Windows',
     n_how: '上手', n_feat: '功能', n_demo: '在线试用', n_priv: '隐私', n_man: '手册',
-    h1: '你复制过的，都在。',
-    h_meta: '刚刚 · 已去重',
-    fact: 'Windows 剪贴板历史管理器。装完 5MB，数据只存你电脑，没有账号，也不联网。',
-    dl: '下载 Windows 版', try_demo: '先在网页里试试', dl_note: 'Windows 10 / 11 · 约 5MB · 免费',
-    h_how: '三步上手', h_how_en: 'Steps',
+    h1: '你<span class="marked">复制</span>过的，<br>都在。',
+    hero_cap: '// 刚刚复制 · 已去重',
+    fact: 'Windows 剪贴板历史管理器。装完 <b>5MB</b>，数据只存你电脑，<b>没有账号，也不联网</b>。',
+    dl: '下载 Windows 版', try_demo: '先在网页里试试', dl_note: 'Win 10/11 · ~5MB · 免费',
+    e_how: '// 上手', e_feat: '// 功能', e_demo: '// 在线试用', e_priv: '// 隐私', e_ki: '// 已知问题', e_man: '// 手册',
     s1: '照常复制，内容自动进历史',
     s2: '呼出面板，打几个字找到那条',
     s3: '粘贴回原来的窗口',
-    h_feat: '它能帮你做什么', h_feat_en: 'Features',
+    t_all: '全部', t_text: '文本', t_image: '图片', t_link: '链接', t_file: '文件',
     c1t: '打几个字，找到那条',
     c1p: '搜索按内容匹配，不用记得是从哪个网页、哪个文档复制的。',
     c2t: '复制十次，只留一条',
@@ -293,26 +476,24 @@ const I18N = {
     c3p: '图片有缩略图，多选文件整组记，超长内容转存成文件，一个字都不会丢。',
     c4t: '贴出去不花',
     c4p: '图片贴进浏览器、Office 都是好的；富文本、链接、文件路径各走各的，不会串。',
-    h_demo: '先在网页里试试', h_demo_en: 'Live demo',
-    demo_p: '这就是真实的 ClipVault 面板，跑在你的浏览器里。可以搜索、切换分类、置顶、删除、看统计——数据保存在浏览器的 localStorage，清除站点数据时才会重置。',
+    m_pin: '已置顶', m_now: '刚刚', m_min: '3 分钟前', m_yday: '昨天',
+    demo_p: '这就是<b>真实的 ClipVault 面板</b>，跑在你的浏览器里。可以搜索、切换分类、置顶、删除、看统计——数据保存在浏览器的 localStorage，清除站点数据时才会重置。',
     demo_btn: '模拟复制一条新内容',
     demo_note: '实际使用中，这一步由 Ctrl+C 完成，不用点任何按钮。',
-    h_priv: '复制密码，它不记住',
+    st_no: '不记录', st_plain: '明文',
     pr_t: '它防什么',
-    pr1: '密码管理器复制的密码，直接跳过——Bitwarden / 1Password / KeePass 会给这类复制打敏感标记，我们认这个标记',
-    pr2: '过滤词自己加——比如 token、api-key 开头的内容，命中就不记录',
-    pr3: '不联网——没有账号，没有云同步，没有遥测',
+    pr1: '<b>密码管理器复制的密码，直接跳过</b>——Bitwarden / 1Password / KeePass 会给这类复制打敏感标记，我们认这个标记',
+    pr2: '<b>过滤词自己加</b>——比如 token、api-key 开头的内容，命中就不记录',
+    pr3: '<b>不联网</b>——没有账号，没有云同步，没有遥测',
     pb_t: '它不防什么',
-    pb1: '除上面两条之外，所有内容明文存在本机，不加密。它不是保险箱。',
+    pb1: '除上面两条之外，所有内容<b>明文存在本机，不加密</b>。它不是保险箱。',
     pb2: '介意明文存储的话，别把敏感内容交给它。',
-    h_known: '已知问题',
-    ki_note: '这些是我们知道的毛病，装之前先告诉你。',
     ki1: '呼出面板的瞬间会短暂打断打字（面板要接管键盘焦点才能搜索，同类工具都有这个问题）',
     ki2: '热键默认 Alt+V，可在设置里改；跟部分 IDE、输入法可能冲突',
     ki3: '粘贴靠一个常驻的小进程按键完成，个别杀软可能提示（属正常行为）',
     ki4: '搜索不支持拼音和模糊匹配',
     ki5: '除密码管理器外，其他敏感内容是明文存储——别把它当保险箱',
-    h_man: '使用手册', h_man_en: 'Reference', m_keys: '快捷键', m_data: '数据在哪', m_log: '变更日志',
+    m_keys: '快捷键', m_data: '数据在哪', m_log: '变更日志',
     th_key: '按键', th_action: '作用',
     k1: '呼出 / 隐藏面板（贴着鼠标弹出）',
     k2_key: '打字', k2: '搜索（搜的是内容，不只是标题）',
@@ -321,26 +502,27 @@ const I18N = {
     k7_key: '鼠标悬停', k7: '长文本看全文，图片看大图（可划选复制）',
     data_p: '所有数据都在下面这个目录里。备份 = 复制整个文件夹；彻底清除 = 删掉它。',
     d1: '历史记录（SQLite，明文）', d2: '图片条目的 PNG 文件',
-    d3: '历史上限 / 面板高度 / 开机自启', d4: '界面报错记录（排查问题时发这个）',
+    d3: '历史上限 / 热键 / 过滤词 / 开机自启', d4: '界面报错记录（排查问题时发这个）',
     ch1: '首个公开版本：文本/图片/文件/富文本/链接的记录与去重',
     ch2: '搜索、置顶、分类、键盘导航、悬停预览、统计',
     ch3: '贴回原窗口、深浅色、中英文、托盘、可选开机自启',
     ch4: '密码管理器的敏感复制自动跳过；面板假死自动恢复',
     f_open: '开源 · 本地运行 · 不联网', f_gh: 'GitHub',
+    sb1: '0 KB 已上传', sb2: '无网络连接', sb3: '1 个进程常驻 · 约 5 MB 内存',
     theme_dark: '深色', theme_light: '浅色',
   },
   en: {
     ver: 'v0.1.0 · Windows',
     n_how: 'How', n_feat: 'Features', n_demo: 'Try it', n_priv: 'Privacy', n_man: 'Manual',
-    h1: 'Everything you copy, right here.',
-    h_meta: 'just now · deduped',
-    fact: 'A Windows clipboard history manager. 5MB, fully local. No account, no cloud, nothing leaves your machine.',
-    dl: 'Download for Windows', try_demo: 'Try it in your browser', dl_note: 'Windows 10 / 11 · ~5MB · Free',
-    h_how: 'How it works', h_how_en: 'Steps',
+    h1: 'Everything you <span class="marked">copy</span>,<br>right here.',
+    hero_cap: '// copied just now · deduped',
+    fact: 'A Windows clipboard history manager. <b>5MB</b>, fully local. <b>No account, no cloud</b> — nothing leaves your machine.',
+    dl: 'Download for Windows', try_demo: 'Try it in your browser', dl_note: 'Win 10/11 · ~5MB · free',
+    e_how: '// how', e_feat: '// features', e_demo: '// live demo', e_priv: '// privacy', e_ki: '// known issues', e_man: '// manual',
     s1: 'Copy as usual — everything is saved automatically',
     s2: 'Press Alt+V, type a few letters to find it',
     s3: 'Paste back into the window you came from',
-    h_feat: 'What it does for you', h_feat_en: 'Features',
+    t_all: 'All', t_text: 'Text', t_image: 'Image', t_link: 'Link', t_file: 'File',
     c1t: 'Type a few letters, find that entry',
     c1p: 'Search matches the content itself — no need to remember which page or file it came from.',
     c2t: 'Copied ten times, kept once',
@@ -349,27 +531,25 @@ const I18N = {
     c3p: 'Images get thumbnails, multi-file copies stay grouped, oversized text is offloaded to a file — nothing is lost.',
     c4t: 'Pastes cleanly',
     c4p: 'Images paste fine into browsers and Office; rich text, links and file paths each keep their own channel.',
-    h_demo: 'Try it in your browser', h_demo_en: 'Live demo',
-    demo_p: 'This is the real ClipVault panel running in your browser. Search, switch tabs, pin, delete, open stats — the data lives in your browser (localStorage) and only resets when you clear site data.',
+    m_pin: 'pinned', m_now: 'just now', m_min: '3 min ago', m_yday: 'yesterday',
+    demo_p: 'This is the <b>real ClipVault panel</b> running in your browser. Search, switch tabs, pin, delete, open stats — the data lives in your browser (localStorage) and only resets when you clear site data.',
     demo_btn: 'Simulate copying something',
     demo_note: 'In real use this step is just Ctrl+C — there is no button to press.',
-    h_priv: 'Passwords are never saved',
+    st_no: 'SKIP', st_plain: 'PLAIN',
     pr_t: 'What it protects',
-    pr1: 'Password-manager copies are skipped — Bitwarden / 1Password / KeePass flag these copies as sensitive, and ClipVault honors that flag',
-    pr2: 'Custom filter words — e.g. anything containing token or api-key is never recorded',
-    pr3: 'No network — no account, no cloud sync, no telemetry',
+    pr1: '<b>Password-manager copies are skipped</b> — Bitwarden / 1Password / KeePass flag these copies as sensitive, and ClipVault honors that flag',
+    pr2: '<b>Custom filter words</b> — e.g. anything containing token or api-key is never recorded',
+    pr3: '<b>No network</b> — no account, no cloud sync, no telemetry',
     pb_t: 'What it does not protect',
-    pb1: 'Everything else is stored as PLAIN TEXT on your machine, unencrypted. It is not a vault.',
+    pb1: 'Everything else is stored as <b>plain text on your machine, unencrypted</b>. It is not a vault.',
     pb2: 'If that bothers you, do not hand it sensitive content.',
-    h_known: 'Known issues',
-    ki_note: 'These are the flaws we know about. You deserve to know before installing.',
     ki1: 'Summoning briefly interrupts typing (the panel must take keyboard focus to search — every tool in this category shares this)',
     ki2: 'The hotkey defaults to Alt+V and can be changed in settings; may clash with some IDEs / input methods',
     ki3: 'Pasting is done by a small resident process pressing the keys; some antivirus tools may flag it (expected)',
     ki4: 'Search has no pinyin or fuzzy matching',
     ki5: 'Apart from password managers, sensitive content is stored as plain text — do not treat it as a vault',
-    h_man: 'Manual', h_man_en: 'Reference', m_keys: 'Shortcuts', m_data: 'Where your data lives', m_log: 'Changelog',
-    th_key: 'Key', th_action: 'Action',
+    m_keys: 'Shortcuts', m_data: 'Where your data lives', m_log: 'Changelog',
+    th_key: 'KEY', th_action: 'ACTION',
     k1: 'Show / hide the panel (pops up near your cursor)',
     k2_key: 'Type', k2: 'Search — matches content, not just titles',
     k3: 'Move between items', k4: 'Paste the selected item into the previous window',
@@ -377,18 +557,19 @@ const I18N = {
     k7_key: 'Hover', k7: 'Full text for long entries, full image for pictures (select a fragment to copy)',
     data_p: 'Everything lives in this folder. Backup = copy it. Wipe = delete it.',
     d1: 'history (SQLite, plain text)', d2: 'PNG files for image entries',
-    d3: 'history limit / panel height / autostart', d4: 'UI error log (send this when troubleshooting)',
+    d3: 'history limit / hotkey / filter words / autostart', d4: 'UI error log (send this when troubleshooting)',
     ch1: 'First public release: text/image/file/rich-text/link capture with dedup',
     ch2: 'Search, pinning, categories, keyboard navigation, hover preview, stats',
     ch3: 'Paste-back, dark/light, zh/en, tray, optional autostart',
     ch4: 'Password-manager sensitive copies auto-skipped; panel self-healing',
     f_open: 'Open source · Runs locally · Zero network', f_gh: 'GitHub',
+    sb1: '0 KB uploaded', sb2: 'no network connection', sb3: '1 resident process · ~5 MB in RAM',
     theme_dark: 'Dark', theme_light: 'Light',
   }
 }
 
 let lang = localStorage.getItem('cv-site-lang') || 'zh'
-let theme = localStorage.getItem('cv-site-theme') || 'dark'
+let theme = localStorage.getItem('cv-site-theme') || 'light'
 const t = (k) => I18N[lang][k] ?? k
 
 function apply() {
@@ -397,6 +578,8 @@ function apply() {
   document.getElementById('langBtn').textContent = lang === 'zh' ? 'EN' : '中文'
   document.getElementById('themeBtn').textContent = theme === 'dark' ? '☀ ' + t('theme_light') : '🌙 ' + t('theme_dark')
   document.querySelectorAll('[data-i18n]').forEach(e => { e.textContent = t(e.dataset.i18n) })
+  document.querySelectorAll('[data-i18n-html]').forEach(e => { e.innerHTML = t(e.dataset.i18nHtml) })
+  document.title = lang === 'zh' ? 'ClipVault — Windows 剪贴板历史管理器' : 'ClipVault — Windows clipboard history manager'
   localStorage.setItem('cv-site-lang', lang)
   localStorage.setItem('cv-site-theme', theme)
   syncDemo()
