@@ -94,6 +94,8 @@ h1 .marked::before {
 
 .hero-art { position: relative; justify-self: end; width: 100%; max-width: 320px; margin-top: -12px; }
 .hero-art img { display: block; width: 100%; height: auto; }
+html[data-theme='dark'] .art-light { display: none; }
+html[data-theme='light'] .art-dark { display: none; }
 /* signature: marching-ants selection frame around the artwork */
 .ants { position: absolute; inset: -14px; width: calc(100% + 28px); height: calc(100% + 28px); pointer-events: none; }
 .ants .frame {
@@ -288,7 +290,8 @@ code { font-family: 'Cascadia Code', Consolas, monospace; font-size: 12.5px;
       </div>
     </div>
     <figure class="hero-art">
-      <img src="images/hero-art.png" alt="" width="1024" height="1024">
+      <img class="art-light" src="images/hero-art.png" alt="" width="1024" height="1024">
+      <img class="art-dark" src="images/hero-art-dark.png" alt="" width="1024" height="1024">
       <svg class="ants" aria-hidden="true">
         <rect class="frame" x="1" y="1" width="calc(100% - 2px)" height="calc(100% - 2px)"/>
         <rect class="handle" x="0" y="0" width="8" height="8"/>

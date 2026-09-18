@@ -1,33 +1,38 @@
-/* Vault theme: dark archive list + warm amber accents (per external design review) */
+/* Document theme — matches the landing page: paper/ink, highlighter, Windows blue.
+   Light is the primary "paper" look; dark is the same document after lights-out. */
 :root {
-  --bg: #101114;
-  --bg-2: #1c1f26;
-  --bg-hover: #262a32;
-  --fg: #e8e9ec;
-  --fg-dim: #9a9ca3;
-  --accent: #e8b84b;
-  --accent-dim: rgba(232, 184, 75, .4);
-  --pin: #e8b84b;
-  --border: #2a2d35;
-  --danger: #e5697a;
-  --radius: 8px;
+  --bg: #ffffff;
+  --bg-2: #f7f7f4;
+  --bg-hover: #f1f1ec;
+  --fg: #1b1d22;
+  --fg-dim: #6c6f78;
+  --accent: #0067c0;            /* win blue: selection, actions */
+  --accent-dim: rgba(0, 103, 192, .25);
+  --pin: #b8901f;
+  --hl: #ffe95c;                /* highlighter: the one warm spot */
+  --border: #e9e9e4;
+  --danger: #c2414f;
+  --radius: 5px;
 }
-:root[data-theme='light'] {
-  --bg: #f7f5f0;          /* warm paper */
-  --bg-2: #fffdf8;
-  --bg-hover: #efece4;
-  --fg: #26241f;
-  --fg-dim: #6f6c63;
-  --accent: #c99a2e;
-  --accent-dim: rgba(201, 154, 46, .4);
-  --pin: #c99a2e;
-  --border: #e2ded4;
+:root[data-theme='dark'] {
+  --bg: #131417;
+  --bg-2: #1b1d22;
+  --bg-hover: #23262d;
+  --fg: #e9eaee;
+  --fg-dim: #8b8e96;
+  --accent: #5aa2e8;
+  --accent-dim: rgba(90, 162, 232, .3);
+  --pin: #e3c53e;
+  --hl: #e3c53e;
+  --border: #26282e;
+  --danger: #e5737f;
 }
 * { box-sizing: border-box; user-select: none; }
 html, body, #app { height: 100%; margin: 0; overflow: hidden; }
 body {
-  font-family: Inter, 'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei UI', 'PingFang SC', sans-serif;
+  font-family: 'Segoe UI', 'Microsoft YaHei UI', 'PingFang SC', sans-serif;
   font-size: 13px;
   background: var(--bg);
   color: var(--fg);
 }
+::selection { background: var(--hl); color: #1b1d22; }
