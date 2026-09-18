@@ -154,17 +154,17 @@ pub fn upsert_text(conn: &Connection, content: &str) -> Result<Option<i64>, Stri
     Ok(Some(conn.last_insert_rowid()))
 }
 
-pub fn enforce_limit(conn: &Connection, max: i64) -> Result<Vec<String>, String> {
+pub fn enforce_limit(conn: &Connection, max: i64) -> Result<Vec<(Option<String>, Option<String>)>, String> {
     // find evicted rows (oldest unpinned beyond the limit), collect their image
-    // files, then delete the rows
-    let victims: Vec<Option<String>> = {
+    // and oversized-text side files, then delete the rows
+    let victims: Vec<(Option<String>, Option<String>)> = {
         let mut stmt = conn
             .prepare(
-                "SELECT image_path FROM clips WHERE pinned=0 ORDER BY created_at DESC LIMIT -1 OFFSET ?1",
+                "SELECT image_path, text_path FROM clips WHERE pinned=0 ORDER BY created_at DESC LIMIT -1 OFFSET ?1",
             )
             .map_err(|e| e.to_string())?;
         let rows = stmt
-            .query_map([max], |r| r.get::<_, Option<String>>(0))
+            .query_map([max], |r| Ok((r.get::<_, Option<String>>(0)?, r.get::<_, Option<String>>(1)?)))
             .map_err(|e| e.to_string())?;
         rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?
     };
@@ -174,7 +174,7 @@ pub fn enforce_limit(conn: &Connection, max: i64) -> Result<Vec<String>, String>
         [max],
     )
     .map_err(|e| e.to_string())?;
-    Ok(victims.into_iter().flatten().collect())
+    Ok(victims)
 }
 
 pub fn upsert_image(conn: &Connection, path: &str, w: u32, h: u32) -> Result<Option<i64>, String> {
@@ -247,21 +247,36 @@ pub fn toggle_pin(conn: &Connection, id: i64) -> Result<(), String> {
     Ok(())
 }
 
+/// Deletes a clip row and its on-disk files: the PNG, its `_t.png` thumbnail
+/// and, for oversized text entries, the full-text side file.
 pub fn delete(conn: &Connection, id: i64) -> Result<(), String> {
-    let path: Option<String> = conn
+    let (image_path, text_path): (Option<String>, Option<String>) = conn
         .query_row(
-            "SELECT image_path FROM clips WHERE id=?1",
+            "SELECT image_path, text_path FROM clips WHERE id=?1",
             [id],
-            |r| r.get(0),
+            |r| Ok((r.get::<_, Option<String>>(0)?, r.get::<_, Option<String>>(1)?)),
         )
-        .map(Some)
-        .unwrap_or(None);
+        .unwrap_or((None, None));
     conn.execute("DELETE FROM clips WHERE id=?1", [id])
         .map_err(|e| e.to_string())?;
-    if let Some(p) = path {
+    remove_clip_files(image_path.as_deref(), text_path.as_deref());
+    Ok(())
+}
+
+/// Removes an image, its `_t.png` thumbnail and an oversized-text side file,
+/// ignoring missing files.
+pub fn remove_clip_files(image_path: Option<&str>, text_path: Option<&str>) {
+    if let Some(p) = image_path {
+        let _ = std::fs::remove_file(p);
+        if let Some(stem) = std::path::Path::new(p).file_stem() {
+            let thumb = std::path::Path::new(p)
+                .with_file_name(format!("{}_t.png", stem.to_string_lossy()));
+            let _ = std::fs::remove_file(thumb);
+        }
+    }
+    if let Some(p) = text_path {
         let _ = std::fs::remove_file(p);
     }
-    Ok(())
 }
 
 pub fn get_clip(conn: &Connection, id: i64) -> Result<(String, Option<String>, Option<String>), String> {

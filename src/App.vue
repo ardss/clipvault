@@ -363,7 +363,7 @@ onBeforeUnmount(() => {
       <template v-for="g in grouped" :key="g.label">
         <div class="group-label">{{ g.label }}</div>
         <div v-for="c in g.items" :key="c.id" class="row" :class="{ sel: flat[selected] && flat[selected].id === c.id, open: false }" @click="onClick(c)" @mouseenter="rowEnter(c, $event)" @mouseleave="rowLeave">
-          <span v-if="c.kind === 'image' && broken.has(c.id)" class="thumb broken" data-i18n="expired">图片已过期</span>
+          <span v-if="c.kind === 'image' && broken.has(c.id)" class="thumb broken">{{ t('expired') }}</span>
           <img v-else-if="c.kind === 'image'" class="thumb" :src="thumb(c)" loading="lazy" decoding="async" @error="thumbFallback(c, $event)" />
           <svg v-else-if="c.kind === 'file'" class="kind-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg>
           <span v-if="c.kind === 'file'" class="preview">{{ (c.preview || '').replace(/^\s+/, '') }}</span>

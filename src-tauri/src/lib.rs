@@ -128,14 +128,14 @@ fn handle_clipboard_change(app: &AppHandle) {
                 captured = true;
             }
         } else if let Some(t) = text {
-            // huge texts would stall IPC, bloat WAL and make the panel lag —
-            // skip anything over 256KB (real clipboard use is nowhere near)
-            if t.len() <= 256 * 1024 {
-                let clean = sanitize_text(&t);
-                let lower = clean.to_lowercase();
-                if keywords.iter().any(|k| !k.trim().is_empty() && lower.contains(&k.trim().to_lowercase())) {
-                    eprintln!("[cv] text matched sensitive keyword — skipped");
-                } else if db::upsert_text(&conn, &clean).is_ok() {
+            let clean = sanitize_text(&t);
+            let lower = clean.to_lowercase();
+            // keyword filter applies to both the inline and the oversized path —
+            // a >256KB copy containing a sensitive word must not be written to disk
+            if keywords.iter().any(|k| !k.trim().is_empty() && lower.contains(&k.trim().to_lowercase())) {
+                eprintln!("[cv] text matched sensitive keyword — skipped");
+            } else if t.len() <= 256 * 1024 {
+                if db::upsert_text(&conn, &clean).is_ok() {
                     captured = true;
                 }
             } else {
@@ -145,7 +145,6 @@ fn handle_clipboard_change(app: &AppHandle) {
                     return;
                 };
                 let _ = std::fs::create_dir_all(&dir);
-                let clean = sanitize_text(&t);
                 let mut hasher = std::collections::hash_map::DefaultHasher::new();
                 std::hash::Hash::hash(&clean, &mut hasher);
                 let path = dir.join(format!("{:016x}.txt", std::hash::Hasher::finish(&hasher)));
@@ -180,11 +179,9 @@ fn handle_clipboard_change(app: &AppHandle) {
     }
     if captured {
         if let Ok(victims) = db::enforce_limit(&conn, limit) {
-            // remove image files of evicted rows (thumbs too)
-            for p in victims {
-                let t = p.replace(".png", "_t.png");
-                let _ = std::fs::remove_file(&p);
-                let _ = std::fs::remove_file(&t);
+            // remove image files of evicted rows (thumbs + oversized-text side files too)
+            for (img, txt) in victims {
+                db::remove_clip_files(img.as_deref(), txt.as_deref());
             }
         }
         drop(conn);

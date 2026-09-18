@@ -81,7 +81,10 @@ pub fn read_clipboard_dib_vec() -> Option<Vec<u8>> {
         return None;
     }
     unsafe {
-        let h = GetClipboardData(CF_DIB).ok()?;
+        let h = match GetClipboardData(CF_DIB) {
+            Ok(h) => h,
+            Err(e) => { cvlog!("[cv] read: GetData err {e}"); let _ = CloseClipboard(); return None; }
+        };
         let hg = HGLOBAL(h.0);
         let ptr = GlobalLock(hg) as *const u8;
         if ptr.is_null() {
@@ -677,7 +680,10 @@ pub fn read_clipboard_files() -> Option<Vec<String>> {
         return None;
     }
     unsafe {
-        let h = GetClipboardData(CF_HDROP).ok()?;
+        let h = match GetClipboardData(CF_HDROP) {
+            Ok(h) => h,
+            Err(e) => { cvlog!("[cv] files: GetData err {e}"); let _ = CloseClipboard(); return None; }
+        };
         let hg = HGLOBAL(h.0);
         let ptr = GlobalLock(hg) as *const u8;
         if ptr.is_null() {
@@ -796,7 +802,10 @@ pub fn read_clipboard_html() -> Option<Vec<u8>> {
         return None;
     }
     unsafe {
-        let h = GetClipboardData(fmt).ok()?;
+        let h = match GetClipboardData(fmt) {
+            Ok(h) => h,
+            Err(e) => { cvlog!("[cv] read: GetData err {e}"); let _ = CloseClipboard(); return None; }
+        };
         let hg = HGLOBAL(h.0);
         let ptr = GlobalLock(hg) as *const u8;
         if ptr.is_null() {
@@ -837,6 +846,12 @@ pub fn write_clipboard_html(html: &[u8]) -> bool {
             let _ = GlobalFree(h);
         }
         let _ = CloseClipboard();
+        // the text write's 600ms self-write window may expire before the
+        // listener sees this second write — mark again so our own HTML
+        // paste isn't recorded as a new clip
+        if ok {
+            mark_self_write();
+        }
         ok
     }
 }
@@ -854,7 +869,10 @@ pub fn read_clipboard_png_raw() -> Option<Vec<u8>> {
         return None;
     }
     unsafe {
-        let h = GetClipboardData(fmt).ok()?;
+        let h = match GetClipboardData(fmt) {
+            Ok(h) => h,
+            Err(e) => { cvlog!("[cv] read: GetData err {e}"); let _ = CloseClipboard(); return None; }
+        };
         let hg = HGLOBAL(h.0);
         let ptr = GlobalLock(hg) as *const u8;
         if ptr.is_null() {
@@ -1104,7 +1122,9 @@ pub fn set_autostart(enable: bool) -> bool {
             )
             .is_ok()
         } else {
-            RegDeleteValueW(hk, PCWSTR(name.as_ptr())).is_ok() || true
+            // "value already gone" counts as success
+            let r = RegDeleteValueW(hk, PCWSTR(name.as_ptr()));
+            r == NO_ERROR || r == ERROR_FILE_NOT_FOUND
         };
         let _ = RegCloseKey(hk);
         ok

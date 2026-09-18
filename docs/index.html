@@ -189,7 +189,7 @@ details .inner { padding: 4px 18px 16px; }
   <h2 id="demo"><span data-i18n="h_demo">先在网页里试试</span> <span class="en" data-i18n="h_demo_en">Live demo</span></h2>
   <div class="demo-box">
     <div class="demo-side">
-      <p data-i18n="demo_p">这就是真实的 ClipVault 面板，跑在你的浏览器里。可以搜索、切换分类、置顶、删除、看统计——数据只存在你的浏览器，关了页面就没有。</p>
+      <p data-i18n="demo_p">这就是真实的 ClipVault 面板，跑在你的浏览器里。可以搜索、切换分类、置顶、删除、看统计——数据保存在浏览器的 localStorage，清除站点数据时才会重置。</p>
       <button class="btn gold" id="demoCopy" onclick="demoCopy()" data-i18n="demo_btn">模拟复制一条新内容</button>
       <p class="demo-note" data-i18n="demo_note">实际使用中，这一步由 Ctrl+C 完成，不用点任何按钮。</p>
     </div>
@@ -293,7 +293,7 @@ const I18N = {
     c4t: '贴出去不花',
     c4p: '图片贴进浏览器、Office 都是好的；富文本、链接、文件路径各走各的，不会串。',
     h_demo: '先在网页里试试', h_demo_en: 'Live demo',
-    demo_p: '这就是真实的 ClipVault 面板，跑在你的浏览器里。可以搜索、切换分类、置顶、删除、看统计——数据只存在你的浏览器，关了页面就没有。',
+    demo_p: '这就是真实的 ClipVault 面板，跑在你的浏览器里。可以搜索、切换分类、置顶、删除、看统计——数据保存在浏览器的 localStorage，清除站点数据时才会重置。',
     demo_btn: '模拟复制一条新内容',
     demo_note: '实际使用中，这一步由 Ctrl+C 完成，不用点任何按钮。',
     h_priv: '复制密码，它不记住',
@@ -349,7 +349,7 @@ const I18N = {
     c4t: 'Pastes cleanly',
     c4p: 'Images paste fine into browsers and Office; rich text, links and file paths each keep their own channel.',
     h_demo: 'Try it in your browser', h_demo_en: 'Live demo',
-    demo_p: 'This is the real ClipVault panel running in your browser. Search, switch tabs, pin, delete, open stats — the data lives in your browser and disappears when you close the page.',
+    demo_p: 'This is the real ClipVault panel running in your browser. Search, switch tabs, pin, delete, open stats — the data lives in your browser (localStorage) and only resets when you clear site data.',
     demo_btn: 'Simulate copying something',
     demo_note: 'In real use this step is just Ctrl+C — there is no button to press.',
     h_priv: 'Passwords are never saved',
