@@ -1,4 +1,5 @@
 //! Extra clipboard formats: CF_HDROP files, "HTML Format", raw "PNG", format logging.
+use super::clipboard::{open_clipboard_retry, read_clipboard_bytes, write_clipboard_single};
 use super::*;
 
 // ---------- files (CF_HDROP) ----------
@@ -6,38 +7,11 @@ use super::*;
 pub const CF_HDROP: u32 = 15;
 
 pub fn read_clipboard_files() -> Option<Vec<String>> {
-    if unsafe { IsClipboardFormatAvailable(CF_HDROP).is_err() } {
-        cvlog!("[cv] files: no CF_HDROP");
+    let data = read_clipboard_bytes(CF_HDROP)?;
+    if data.len() < 20 {
         return None;
     }
-    if !open_clipboard_retry() {
-        cvlog!("[cv] files: open failed");
-        return None;
-    }
-    unsafe {
-        let h = match GetClipboardData(CF_HDROP) {
-            Ok(h) => h,
-            Err(e) => {
-                cvlog!("[cv] files: GetData err {e}");
-                let _ = CloseClipboard();
-                return None;
-            }
-        };
-        let hg = HGLOBAL(h.0);
-        let ptr = GlobalLock(hg) as *const u8;
-        if ptr.is_null() {
-            let _ = CloseClipboard();
-            return None;
-        }
-        let size = GlobalSize(hg);
-        let data = std::slice::from_raw_parts(ptr, size).to_vec();
-        let _ = GlobalUnlock(hg);
-        let _ = CloseClipboard();
-        if data.len() < 20 {
-            return None;
-        }
-        parse_dropfiles_blob(&data)
-    }
+    parse_dropfiles_blob(&data)
 }
 
 fn parse_dropfiles_blob(data: &[u8]) -> Option<Vec<String>> {
@@ -93,36 +67,7 @@ pub fn write_clipboard_files(paths: &[String]) -> bool {
         blob.extend_from_slice(&0u16.to_le_bytes());
     }
     blob.extend_from_slice(&0u16.to_le_bytes()); // final double-null
-    if !open_clipboard_retry() {
-        return false;
-    }
-    unsafe {
-        let _ = EmptyClipboard();
-        let h = match GlobalAlloc(GMEM_MOVEABLE, blob.len()) {
-            Ok(h) => h,
-            Err(_) => {
-                let _ = CloseClipboard();
-                return false;
-            }
-        };
-        let ptr = GlobalLock(h) as *mut u8;
-        if ptr.is_null() {
-            let _ = GlobalFree(h);
-            let _ = CloseClipboard();
-            return false;
-        }
-        std::ptr::copy_nonoverlapping(blob.as_ptr(), ptr, blob.len());
-        let _ = GlobalUnlock(h);
-        let ok = SetClipboardData(CF_HDROP, HANDLE(h.0)).is_ok();
-        if !ok {
-            let _ = GlobalFree(h);
-        }
-        let _ = CloseClipboard();
-        if ok {
-            mark_self_write();
-        }
-        ok
-    }
+    write_clipboard_single(CF_HDROP, &blob)
 }
 
 // ---------- rich text (HTML Format) ----------
@@ -134,68 +79,20 @@ fn html_format_id() -> u32 {
 
 pub fn read_clipboard_html() -> Option<Vec<u8>> {
     let fmt = html_format_id();
-    if fmt == 0 || unsafe { IsClipboardFormatAvailable(fmt).is_err() } {
+    if fmt == 0 {
         return None;
     }
-    if !open_clipboard_retry() {
-        return None;
-    }
-    unsafe {
-        let h = match GetClipboardData(fmt) {
-            Ok(h) => h,
-            Err(e) => {
-                cvlog!("[cv] read: GetData err {e}");
-                let _ = CloseClipboard();
-                return None;
-            }
-        };
-        let hg = HGLOBAL(h.0);
-        let ptr = GlobalLock(hg) as *const u8;
-        if ptr.is_null() {
-            let _ = CloseClipboard();
-            return None;
-        }
-        let size = GlobalSize(hg);
-        let data = std::slice::from_raw_parts(ptr, size).to_vec();
-        let _ = GlobalUnlock(hg);
-        let _ = CloseClipboard();
-        Some(data)
-    }
+    read_clipboard_bytes(fmt)
 }
 
 pub fn write_clipboard_html(html: &[u8]) -> bool {
     let fmt = html_format_id();
-    if fmt == 0 || !open_clipboard_retry() {
+    if fmt == 0 {
         return false;
     }
-    unsafe {
-        let h = match GlobalAlloc(GMEM_MOVEABLE, html.len()) {
-            Ok(h) => h,
-            Err(_) => {
-                let _ = CloseClipboard();
-                return false;
-            }
-        };
-        let ptr = GlobalLock(h) as *mut u8;
-        if ptr.is_null() {
-            let _ = GlobalFree(h);
-            let _ = CloseClipboard();
-            return false;
-        }
-        std::ptr::copy_nonoverlapping(html.as_ptr(), ptr, html.len());
-        let _ = GlobalUnlock(h);
-        let ok = SetClipboardData(fmt, HANDLE(h.0)).is_ok();
-        if !ok {
-            let _ = GlobalFree(h);
-        }
-        let _ = CloseClipboard();
-        // stamp the sequence number again so the listener attributes this
-        // second write (after the text write) to us as well
-        if ok {
-            mark_self_write();
-        }
-        ok
-    }
+    // write_clipboard_single stamps the sequence number so the listener
+    // attributes this second write (after the text write) to us as well
+    write_clipboard_single(fmt, html)
 }
 
 /// Reads raw bytes of the registered "PNG" format if present (Snipping Tool,
@@ -203,33 +100,10 @@ pub fn write_clipboard_html(html: &[u8]) -> bool {
 pub fn read_clipboard_png_raw() -> Option<Vec<u8>> {
     let name: Vec<u16> = "PNG".encode_utf16().collect();
     let fmt = unsafe { RegisterClipboardFormatW(PCWSTR(name.as_ptr())) };
-    if fmt == 0 || unsafe { IsClipboardFormatAvailable(fmt).is_err() } {
+    if fmt == 0 {
         return None;
     }
-    if !open_clipboard_retry() {
-        return None;
-    }
-    unsafe {
-        let h = match GetClipboardData(fmt) {
-            Ok(h) => h,
-            Err(e) => {
-                cvlog!("[cv] read: GetData err {e}");
-                let _ = CloseClipboard();
-                return None;
-            }
-        };
-        let hg = HGLOBAL(h.0);
-        let ptr = GlobalLock(hg) as *const u8;
-        if ptr.is_null() {
-            let _ = CloseClipboard();
-            return None;
-        }
-        let size = GlobalSize(hg);
-        let data = std::slice::from_raw_parts(ptr, size).to_vec();
-        let _ = GlobalUnlock(hg);
-        let _ = CloseClipboard();
-        (data.starts_with(&[0x89, 0x50, 0x4E, 0x47])).then_some(data)
-    }
+    read_clipboard_bytes(fmt).filter(|d| d.starts_with(&[0x89, 0x50, 0x4E, 0x47]))
 }
 
 /// Logs every clipboard format currently on the clipboard (diagnostics).
@@ -262,8 +136,6 @@ pub fn log_clipboard_formats() {
             };
             names.push(name);
         }
-    }
-    unsafe {
         let _ = CloseClipboard();
     }
     cvlog!("[cv] formats: {:?}", names);
@@ -288,7 +160,7 @@ mod file_tests {
             blob.extend_from_slice(&u.to_le_bytes());
         }
         blob.extend_from_slice(&0u16.to_le_bytes()); // list terminator
-        let out = super::parse_dropfiles_blob(&blob).expect("parse failed");
+        let out = parse_dropfiles_blob(&blob).expect("parse failed");
         assert_eq!(out, vec!["C:\\win\\a.txt".to_string()]);
     }
 

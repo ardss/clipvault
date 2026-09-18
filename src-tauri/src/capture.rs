@@ -1,0 +1,185 @@
+//! Clipboard capture pipeline: read the clipboard on change, classify,
+//! persist (with dedup, keyword filter, oversized-text side files) and prune.
+use std::time::Duration;
+use tauri::{AppHandle, Emitter, Manager};
+
+use crate::db;
+use crate::settings::SettingsState;
+use crate::win;
+
+pub(crate) fn save_image(app: &AppHandle, png: &[u8]) -> Option<(String, u32, u32)> {
+    let (bytes, w, h) = win::dib_to_png(png)?;
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    std::hash::Hash::hash(&bytes, &mut hasher);
+    let hash = std::hash::Hasher::finish(&hasher);
+    let dir = app.path().app_data_dir().ok()?;
+    let path = dir.join("images").join(format!("{hash:016x}.png"));
+    if !path.exists() {
+        std::fs::write(&path, &bytes).ok()?;
+    }
+    // 256px thumbnail: the panel lists load this instead of the full image
+    let thumb = dir.join("images").join(format!("{hash:016x}_t.png"));
+    if !thumb.exists() {
+        if let Ok(img) = image::load_from_memory(&bytes) {
+            let t = img.thumbnail(256, 256);
+            let _ = t.save(&thumb);
+        }
+    }
+    Some((path.to_string_lossy().into_owned(), w, h))
+}
+
+pub(crate) fn handle_clipboard_change(app: &AppHandle) {
+    if win::is_self_write() {
+        return;
+    }
+    // capture paused from settings — copies go to the real clipboard
+    // untouched, nothing is recorded
+    if app
+        .state::<SettingsState>()
+        .0
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .paused
+    {
+        return;
+    }
+    // password managers flag sensitive copies — never record those. Writers
+    // put formats on the clipboard in steps, so re-check a few times before
+    // trusting a "not flagged" result
+    for _ in 0..3 {
+        if win::clipboard_marked_sensitive() {
+            eprintln!("[cv] sensitive clipboard content skipped");
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(120));
+    }
+    // snapshot settings once so limit and keywords come from the same state
+    let settings_state = app.state::<SettingsState>();
+    let (limit, keywords) = {
+        let s = settings_state.0.lock().unwrap_or_else(|p| p.into_inner());
+        (s.history_limit, s.sensitive_keywords.clone())
+    };
+    let st = app.state::<db::Db>();
+    let conn = st.0.lock().unwrap_or_else(|p| p.into_inner());
+    let mut captured = false;
+    // priority: files > rich text/plain > image
+    if let Some(files) = win::read_clipboard_files() {
+        cvlog!("[cv] files read: {}", files.len());
+        if db::upsert_file(&conn, &files).is_ok() {
+            captured = true;
+        }
+    } else {
+        cvlog!("[cv] files: none, trying text/html/dib");
+        let text = win::read_clipboard_text();
+        let html = win::read_clipboard_html();
+        if let (Some(t), Some(h)) = (&text, &html) {
+            if db::upsert_html(&conn, t, h).is_ok() {
+                captured = true;
+            }
+        } else if let Some(h) = html {
+            // some writers set "HTML Format" without CF_UNICODETEXT
+            let plain = html_to_plain(&h);
+            if db::upsert_html(&conn, &plain, &h).is_ok() {
+                captured = true;
+            }
+        } else if let Some(t) = text {
+            let clean = sanitize_text(&t);
+            let lower = clean.to_lowercase();
+            // keyword filter applies to both the inline and the oversized path —
+            // a >256KB copy containing a sensitive word must not be written to disk
+            if keywords
+                .iter()
+                .any(|k| !k.trim().is_empty() && lower.contains(&k.trim().to_lowercase()))
+            {
+                eprintln!("[cv] text matched sensitive keyword — skipped");
+            } else if t.len() <= 256 * 1024 {
+                if db::upsert_text(&conn, &clean).is_ok() {
+                    captured = true;
+                }
+            } else {
+                // oversized: full text goes to a side file so nothing is lost —
+                // the DB row keeps only a short preview
+                let Ok(dir) = app.path().app_data_dir().map(|d| d.join("texts")) else {
+                    return;
+                };
+                let _ = std::fs::create_dir_all(&dir);
+                let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                std::hash::Hash::hash(&clean, &mut hasher);
+                let path = dir.join(format!("{:016x}.txt", std::hash::Hasher::finish(&hasher)));
+                if std::fs::write(&path, &clean).is_err() {
+                    return;
+                }
+                let short: String = clean.chars().take(2000).collect();
+                match db::upsert_text_file(&conn, &short, path.to_string_lossy().as_ref()) {
+                    Ok(_) => {
+                        captured = true;
+                        cvlog!("[cv] big text stored: {}", path.display());
+                    }
+                    Err(e) => cvlog!("[cv] big text upsert ERR: {e}"),
+                }
+            }
+        } else if let Some(png) = win::read_clipboard_png_raw() {
+            // Snipping Tool / browsers / Office write exact "PNG" bytes —
+            // no DIB decoding involved
+            cvlog!("[cv] png format read: {} bytes", png.len());
+            if png.len() <= 20 * 1024 * 1024 {
+                if let Some((path, w, h)) = save_image(app, &png) {
+                    if db::upsert_image(&conn, &path, w, h).is_ok() {
+                        captured = true;
+                    }
+                }
+            }
+        } else if let Some(dib) = win::read_clipboard_dib_vec() {
+            win::log_clipboard_formats();
+            if dib.len() <= 20 * 1024 * 1024 {
+                if let Some((path, w, h)) = save_image(app, &dib) {
+                    if db::upsert_image(&conn, &path, w, h).is_ok() {
+                        captured = true;
+                    }
+                }
+            }
+        }
+    }
+    if captured {
+        if let Ok(victims) = db::enforce_limit(&conn, limit) {
+            // remove image files of evicted rows (thumbs + oversized-text side files too)
+            for (img, txt) in victims {
+                db::remove_clip_files(img.as_deref(), txt.as_deref());
+            }
+        }
+        drop(conn);
+        let _ = app.emit("clips-changed", ());
+    }
+}
+
+/// Removes control characters that break rendering/search (keeps newline, CR, tab).
+fn sanitize_text(s: &str) -> String {
+    s.chars()
+        .filter(|&c| !c.is_control() || c == '\n' || c == '\r' || c == '\t')
+        .collect()
+}
+
+fn html_to_plain(html: &[u8]) -> String {
+    let s = String::from_utf8_lossy(html);
+    let body = match (s.find("<!--StartFragment-->"), s.find("<!--EndFragment-->")) {
+        (Some(a), Some(b)) if a < b => &s[a + 20..b],
+        _ => &s[..],
+    };
+    let mut out = String::new();
+    let mut in_tag = false;
+    for ch in body.chars() {
+        match ch {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            c if !in_tag => out.push(c),
+            _ => {}
+        }
+    }
+    out.replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&nbsp;", " ")
+        .trim()
+        .to_string()
+}

@@ -29,14 +29,25 @@ mod formats;
 mod injector;
 mod window;
 
-pub use autostart::*;
-pub use clipboard::*;
-pub use dib::*;
-pub use formats::*;
-pub use injector::*;
-pub use window::*;
+// explicit re-exports: only what lib.rs (and the tests) actually use.
+// Children import from each other via `super::<module>::<item>`, never
+// through these globs.
+pub use autostart::set_autostart;
+pub use clipboard::{
+    clipboard_marked_sensitive, is_self_write, read_clipboard_dib_vec, read_clipboard_text,
+    write_clipboard_png, write_clipboard_text,
+};
+pub use dib::dib_to_png;
+pub use formats::{
+    log_clipboard_formats, read_clipboard_files, read_clipboard_html, read_clipboard_png_raw,
+    write_clipboard_files, write_clipboard_html,
+};
+pub use injector::{focus_hwnd, injector_loop, request_paste_keystroke};
+pub use window::{
+    capture_focus, get_cursor_pos, get_foreground, log_send_time, point_in_panel, restore_focus,
+    restore_foreground, spawn_zoom_watchdog, update_panel_rect,
+};
 
-// ---------- clipboard listener thread ----------
 // ---------- clipboard listener thread ----------
 
 const WM_CLIPBOARDUPDATE: u32 = 0x031D;

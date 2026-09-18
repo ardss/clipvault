@@ -1,7 +1,7 @@
 //! Clipboard open/read/write primitives and self-write bookkeeping.
 use super::*;
 
-// ---------- clipboard read ----------
+// ---------- shared primitives ----------
 
 pub(crate) fn open_clipboard_retry() -> bool {
     for ms in [0u32, 15, 35, 75, 150] {
@@ -17,57 +17,16 @@ pub(crate) fn open_clipboard_retry() -> bool {
     false
 }
 
-pub fn read_clipboard_text() -> Option<String> {
-    if unsafe { IsClipboardFormatAvailable(CF_UNICODETEXT).is_err() } {
-        cvlog!("[cv] read: no CF_UNICODETEXT");
-        return None;
-    }
-    if !open_clipboard_retry() {
-        cvlog!("[cv] read: OpenClipboard failed");
-        return None;
-    }
-    unsafe {
-        let h = match GetClipboardData(CF_UNICODETEXT) {
-            Ok(h) => h,
-            Err(e) => {
-                cvlog!("[cv] read: GetData err {e}");
-                let _ = CloseClipboard();
-                return None;
-            }
-        };
-        let hg = HGLOBAL(h.0);
-        let ptr = GlobalLock(hg) as *const u16;
-        if ptr.is_null() {
-            cvlog!("[cv] read: GlobalLock null");
-            let _ = CloseClipboard();
-            return None;
-        }
-        let max_units = GlobalSize(hg) / 2;
-        let mut len = 0usize;
-        while len < max_units && *ptr.add(len) != 0 {
-            len += 1;
-        }
-        let slice = std::slice::from_raw_parts(ptr, len);
-        let s = String::from_utf16_lossy(slice);
-        let _ = GlobalUnlock(hg);
-        let _ = CloseClipboard();
-        if s.trim().is_empty() {
-            None
-        } else {
-            Some(s)
-        }
-    }
-}
-
-pub fn read_clipboard_dib_vec() -> Option<Vec<u8>> {
-    if unsafe { IsClipboardFormatAvailable(CF_DIB).is_err() } {
+/// Reads raw bytes of `fmt` (availability check + open/lock/close).
+pub(crate) fn read_clipboard_bytes(fmt: u32) -> Option<Vec<u8>> {
+    if unsafe { IsClipboardFormatAvailable(fmt).is_err() } {
         return None;
     }
     if !open_clipboard_retry() {
         return None;
     }
     unsafe {
-        let h = match GetClipboardData(CF_DIB) {
+        let h = match GetClipboardData(fmt) {
             Ok(h) => h,
             Err(e) => {
                 cvlog!("[cv] read: GetData err {e}");
@@ -82,12 +41,102 @@ pub fn read_clipboard_dib_vec() -> Option<Vec<u8>> {
             return None;
         }
         let size = GlobalSize(hg);
-        let dib = std::slice::from_raw_parts(ptr, size).to_vec();
+        let data = std::slice::from_raw_parts(ptr, size).to_vec();
         let _ = GlobalUnlock(hg);
         let _ = CloseClipboard();
-        Some(dib)
+        Some(data)
     }
 }
+
+/// Sets one format on an ALREADY-OPEN clipboard. The allocated global is
+/// released on failure and handed to the system on success.
+pub(crate) fn set_clipboard_data_raw(fmt: u32, bytes: &[u8]) -> bool {
+    unsafe {
+        let h = match GlobalAlloc(GMEM_MOVEABLE, bytes.len()) {
+            Ok(h) => h,
+            Err(_) => return false,
+        };
+        let ptr = GlobalLock(h) as *mut u8;
+        if ptr.is_null() {
+            let _ = GlobalFree(h);
+            return false;
+        }
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr, bytes.len());
+        let _ = GlobalUnlock(h);
+        let ok = SetClipboardData(fmt, HANDLE(h.0)).is_ok();
+        if !ok {
+            let _ = GlobalFree(h);
+        }
+        ok
+    }
+}
+
+/// Opens the clipboard, replaces its content with a single format, closes and
+/// stamps the self-write sequence number.
+pub(crate) fn write_clipboard_single(fmt: u32, bytes: &[u8]) -> bool {
+    if !open_clipboard_retry() {
+        return false;
+    }
+    unsafe {
+        let _ = EmptyClipboard();
+    }
+    let ok = set_clipboard_data_raw(fmt, bytes);
+    unsafe {
+        let _ = CloseClipboard();
+    }
+    if ok {
+        mark_self_write();
+    }
+    ok
+}
+
+// ---------- readers ----------
+
+pub fn read_clipboard_text() -> Option<String> {
+    let bytes = read_clipboard_bytes(CF_UNICODETEXT)?;
+    let units: Vec<u16> = bytes
+        .chunks_exact(2)
+        .map(|c| u16::from_le_bytes([c[0], c[1]]))
+        .take_while(|&u| u != 0)
+        .collect();
+    let s = String::from_utf16_lossy(&units);
+    if s.trim().is_empty() {
+        None
+    } else {
+        Some(s)
+    }
+}
+
+pub fn read_clipboard_dib_vec() -> Option<Vec<u8>> {
+    read_clipboard_bytes(CF_DIB)
+}
+
+pub fn clipboard_marked_sensitive() -> bool {
+    let reg = |name: &str| -> u32 {
+        let n = name
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect::<Vec<u16>>();
+        unsafe { RegisterClipboardFormatW(PCWSTR(n.as_ptr())) }
+    };
+    unsafe {
+        let excl = reg("ExcludeClipboardContentFromMonitorProcessing");
+        if excl != 0 && IsClipboardFormatAvailable(excl).is_ok() {
+            return true;
+        }
+        let can = reg("CanIncludeInClipboardHistory");
+        if can == 0 || IsClipboardFormatAvailable(can).is_err() {
+            return false;
+        }
+    }
+    // value 0 = the app asked to be excluded from history tools
+    match read_clipboard_bytes(reg("CanIncludeInClipboardHistory")) {
+        Some(b) if b.len() >= 4 => u32::from_le_bytes([b[0], b[1], b[2], b[3]]) == 0,
+        _ => false,
+    }
+}
+
+// ---------- writers ----------
 
 /// Puts PNG bytes on the clipboard the way mainstream apps expect:
 /// a standard bottom-up 32bpp CF_DIB **plus** the registered "PNG" format
@@ -114,82 +163,35 @@ pub fn write_clipboard_png(png: &[u8]) -> bool {
         }
     }
     let png_name: Vec<u16> = "PNG\0".encode_utf16().collect();
-    unsafe {
-        if !open_clipboard_retry() {
-            return false;
-        }
-        let _ = EmptyClipboard();
-        let mut ok = false;
-        // CF_DIB
-        if let Ok(hd) = GlobalAlloc(GMEM_MOVEABLE, dib.len()) {
-            let ptr = GlobalLock(hd) as *mut u8;
-            if ptr.is_null() {
-                let _ = GlobalFree(hd);
-            } else {
-                std::ptr::copy_nonoverlapping(dib.as_ptr(), ptr, dib.len());
-                let _ = GlobalUnlock(hd);
-                if SetClipboardData(CF_DIB, HANDLE(hd.0)).is_err() {
-                    let _ = GlobalFree(hd);
-                } else {
-                    ok = true;
-                }
-            }
-        }
-        // registered "PNG" format with the original bytes
-        let png_fmt = RegisterClipboardFormatW(PCWSTR(png_name.as_ptr()));
-        if let Ok(hp) = GlobalAlloc(GMEM_MOVEABLE, png.len()) {
-            let ptr = GlobalLock(hp) as *mut u8;
-            if ptr.is_null() {
-                let _ = GlobalFree(hp);
-            } else {
-                std::ptr::copy_nonoverlapping(png.as_ptr(), ptr, png.len());
-                let _ = GlobalUnlock(hp);
-                if SetClipboardData(png_fmt, HANDLE(hp.0)).is_err() {
-                    let _ = GlobalFree(hp);
-                }
-            }
-        }
-        let _ = CloseClipboard();
-        if ok {
-            mark_self_write();
-        }
-        ok
-    }
-}
-
-pub fn write_clipboard_text(s: &str) -> bool {
-    let wide: Vec<u16> = s.encode_utf16().chain(std::iter::once(0)).collect();
+    let png_fmt = unsafe { RegisterClipboardFormatW(PCWSTR(png_name.as_ptr())) };
     if !open_clipboard_retry() {
         return false;
     }
     unsafe {
         let _ = EmptyClipboard();
-        let h = match GlobalAlloc(GMEM_MOVEABLE, wide.len() * 2) {
-            Ok(h) => h,
-            Err(_) => {
-                let _ = CloseClipboard();
-                return false;
-            }
-        };
-        let ptr = GlobalLock(h) as *mut u16;
-        if ptr.is_null() {
-            let _ = GlobalFree(h);
-            let _ = CloseClipboard();
-            return false;
-        }
-        std::ptr::copy_nonoverlapping(wide.as_ptr(), ptr, wide.len());
-        let _ = GlobalUnlock(h);
-        let ok = SetClipboardData(CF_UNICODETEXT, HANDLE(h.0)).is_ok();
-        if !ok {
-            let _ = GlobalFree(h);
-        }
-        let _ = CloseClipboard();
-        if ok {
-            mark_self_write();
-        }
-        ok
     }
+    // two formats in one open session: set_clipboard_data_raw without
+    // close/stamp so both land before we hand the clipboard back
+    let ok_dib = set_clipboard_data_raw(CF_DIB, &dib);
+    if png_fmt != 0 {
+        set_clipboard_data_raw(png_fmt, png);
+    }
+    unsafe {
+        let _ = CloseClipboard();
+    }
+    if ok_dib {
+        mark_self_write();
+    }
+    ok_dib
 }
+
+pub fn write_clipboard_text(s: &str) -> bool {
+    let wide: Vec<u16> = s.encode_utf16().chain(std::iter::once(0)).collect();
+    let bytes = unsafe { std::slice::from_raw_parts(wide.as_ptr() as *const u8, wide.len() * 2) };
+    write_clipboard_single(CF_UNICODETEXT, bytes)
+}
+
+// ---------- self-write bookkeeping ----------
 
 pub fn mark_self_write() {
     // stamp the clipboard sequence number our write produced. Any clipboard
@@ -205,44 +207,4 @@ pub fn mark_self_write() {
 
 pub fn is_self_write() -> bool {
     SELF_WRITE_SEQ.load(Ordering::SeqCst) == unsafe { GetClipboardSequenceNumber() } as isize
-}
-
-pub fn clipboard_marked_sensitive() -> bool {
-    let reg = |name: &str| -> u32 {
-        let n = name
-            .encode_utf16()
-            .chain(std::iter::once(0))
-            .collect::<Vec<u16>>();
-        unsafe { RegisterClipboardFormatW(PCWSTR(n.as_ptr())) }
-    };
-    unsafe {
-        let excl = reg("ExcludeClipboardContentFromMonitorProcessing");
-        if excl != 0 && IsClipboardFormatAvailable(excl).is_ok() {
-            return true;
-        }
-        let can = reg("CanIncludeInClipboardHistory");
-        if can == 0 || IsClipboardFormatAvailable(can).is_err() {
-            return false;
-        }
-        if !open_clipboard_retry() {
-            return false;
-        }
-        let h = match GetClipboardData(can) {
-            Ok(h) => h,
-            Err(_) => {
-                let _ = CloseClipboard();
-                return false;
-            }
-        };
-        let hg = HGLOBAL(h.0);
-        let ptr = GlobalLock(hg) as *const u32;
-        if ptr.is_null() {
-            let _ = CloseClipboard();
-            return false;
-        }
-        let v = *ptr;
-        let _ = GlobalUnlock(hg);
-        let _ = CloseClipboard();
-        v == 0 // 0 = the app asked to be excluded from history
-    }
 }

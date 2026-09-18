@@ -15,6 +15,24 @@ pub fn get_cursor_pos() -> (i32, i32) {
     }
 }
 
+/// Diagnostic: logs the real foreground window and its focused child right
+/// before the injector fires (paste-loss triage).
+pub fn log_send_time() {
+    unsafe {
+        let fg = GetForegroundWindow();
+        let thread = GetWindowThreadProcessId(fg, None);
+        let mut gi = GUITHREADINFO {
+            cbSize: std::mem::size_of::<GUITHREADINFO>() as u32,
+            ..Default::default()
+        };
+        let _ = GetGUIThreadInfo(thread, &mut gi);
+        eprintln!(
+            "[cv] send-time: fg={:x} focus={:x}",
+            fg.0 as usize, gi.hwndFocus.0 as usize
+        );
+    }
+}
+
 pub fn update_panel_rect(hwnd: isize) {
     unsafe {
         let mut r = RECT::default();
