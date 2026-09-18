@@ -77,10 +77,15 @@ fn row_to_clip(r: &rusqlite::Row) -> rusqlite::Result<Clip> {
     })
 }
 
-const COLS: &str = "id, kind, preview, image_path, content, pinned, use_count, created_at, text_path";
+const COLS: &str =
+    "id, kind, preview, image_path, content, pinned, use_count, created_at, text_path";
 
 pub fn list(conn: &Connection, filter: &str, query: &str) -> Result<Vec<Clip>, String> {
-    cvlog!("[cv] list: filter={filter:?} query={query:?} total={}", conn.query_row("SELECT count(*) FROM clips", [], |r| r.get::<_,i64>(0)).unwrap_or(-1));
+    cvlog!(
+        "[cv] list: filter={filter:?} query={query:?} total={}",
+        conn.query_row("SELECT count(*) FROM clips", [], |r| r.get::<_, i64>(0))
+            .unwrap_or(-1)
+    );
     let base = match filter {
         "text" => " AND kind IN ('text','html')",
         "image" => " AND kind='image'",
@@ -91,7 +96,10 @@ pub fn list(conn: &Connection, filter: &str, query: &str) -> Result<Vec<Clip>, S
     // escape LIKE wildcards in user input, bind as a parameter
     let like = format!(
         "%{}%",
-        query.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
+        query
+            .replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_")
     );
     let sql = if query.is_empty() {
         format!(
@@ -158,7 +166,10 @@ pub fn upsert_text(conn: &Connection, content: &str) -> Result<Option<i64>, Stri
     Ok(Some(id))
 }
 
-pub fn enforce_limit(conn: &Connection, max: i64) -> Result<Vec<(Option<String>, Option<String>)>, String> {
+/// On-disk file paths owned by an evicted row.
+pub type EvictedFiles = (Option<String>, Option<String>);
+
+pub fn enforce_limit(conn: &Connection, max: i64) -> Result<Vec<EvictedFiles>, String> {
     // find evicted rows (oldest unpinned beyond the limit), collect their image
     // and oversized-text side files, then delete the rows — one transaction so
     // a crash can't orphan files for rows that still exist (or vice versa)
@@ -170,9 +181,15 @@ pub fn enforce_limit(conn: &Connection, max: i64) -> Result<Vec<(Option<String>,
             )
             .map_err(|e| e.to_string())?;
         let rows = stmt
-            .query_map([max], |r| Ok((r.get::<_, Option<String>>(0)?, r.get::<_, Option<String>>(1)?)))
+            .query_map([max], |r| {
+                Ok((
+                    r.get::<_, Option<String>>(0)?,
+                    r.get::<_, Option<String>>(1)?,
+                ))
+            })
             .map_err(|e| e.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?
     };
     tx.execute(
         "DELETE FROM clips WHERE id IN (
@@ -214,15 +231,16 @@ pub fn upsert_image(conn: &Connection, path: &str, w: u32, h: u32) -> Result<Opt
     Ok(Some(id))
 }
 
-
-pub fn upsert_text_file(conn: &Connection, preview: &str, path: &str) -> Result<Option<i64>, String> {
+pub fn upsert_text_file(
+    conn: &Connection,
+    preview: &str,
+    path: &str,
+) -> Result<Option<i64>, String> {
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
     let dup: Option<i64> = tx
-        .query_row(
-            "SELECT id FROM clips WHERE text_path=?1",
-            [path],
-            |r| r.get::<_, i64>(0),
-        )
+        .query_row("SELECT id FROM clips WHERE text_path=?1", [path], |r| {
+            r.get::<_, i64>(0)
+        })
         .map(Some)
         .unwrap_or(None);
     if let Some(id) = dup {
@@ -248,17 +266,16 @@ pub fn upsert_text_file(conn: &Connection, preview: &str, path: &str) -> Result<
 #[allow(dead_code)]
 pub fn get_text_file(conn: &Connection, id: i64) -> Result<Option<String>, String> {
     let p: Option<String> = conn
-        .query_row("SELECT text_path FROM clips WHERE id=?1", [id], |r| r.get(0))
+        .query_row("SELECT text_path FROM clips WHERE id=?1", [id], |r| {
+            r.get(0)
+        })
         .map_err(|e| e.to_string())?;
     Ok(p.and_then(|p| std::fs::read_to_string(p).ok()))
 }
 
 pub fn toggle_pin(conn: &Connection, id: i64) -> Result<(), String> {
-    conn.execute(
-        "UPDATE clips SET pinned = 1 - pinned WHERE id=?1",
-        [id],
-    )
-    .map_err(|e| e.to_string())?;
+    conn.execute("UPDATE clips SET pinned = 1 - pinned WHERE id=?1", [id])
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -270,7 +287,12 @@ pub fn delete(conn: &Connection, id: i64) -> Result<(), String> {
         .query_row(
             "SELECT image_path, text_path FROM clips WHERE id=?1",
             [id],
-            |r| Ok((r.get::<_, Option<String>>(0)?, r.get::<_, Option<String>>(1)?)),
+            |r| {
+                Ok((
+                    r.get::<_, Option<String>>(0)?,
+                    r.get::<_, Option<String>>(1)?,
+                ))
+            },
         )
         .unwrap_or((None, None));
     tx.execute("DELETE FROM clips WHERE id=?1", [id])
@@ -286,8 +308,8 @@ pub fn remove_clip_files(image_path: Option<&str>, text_path: Option<&str>) {
     if let Some(p) = image_path {
         let _ = std::fs::remove_file(p);
         if let Some(stem) = std::path::Path::new(p).file_stem() {
-            let thumb = std::path::Path::new(p)
-                .with_file_name(format!("{}_t.png", stem.to_string_lossy()));
+            let thumb =
+                std::path::Path::new(p).with_file_name(format!("{}_t.png", stem.to_string_lossy()));
             let _ = std::fs::remove_file(thumb);
         }
     }
@@ -296,7 +318,10 @@ pub fn remove_clip_files(image_path: Option<&str>, text_path: Option<&str>) {
     }
 }
 
-pub fn get_clip(conn: &Connection, id: i64) -> Result<(String, Option<String>, Option<String>), String> {
+pub fn get_clip(
+    conn: &Connection,
+    id: i64,
+) -> Result<(String, Option<String>, Option<String>), String> {
     conn.query_row(
         "SELECT kind, content, image_path FROM clips WHERE id=?1",
         [id],
@@ -334,9 +359,7 @@ pub struct Stats {
 }
 
 pub fn stats(conn: &Connection) -> Result<Stats, String> {
-    let one = |sql: &str| -> i64 {
-        conn.query_row(sql, [], |r| r.get(0)).unwrap_or(0)
-    };
+    let one = |sql: &str| -> i64 { conn.query_row(sql, [], |r| r.get(0)).unwrap_or(0) };
     let today = one(&format!(
         "SELECT count(*) FROM clips WHERE created_at >= {}",
         now() - 86_400_000
@@ -357,7 +380,9 @@ pub fn stats(conn: &Connection) -> Result<Stats, String> {
     }
     let mut top = Vec::new();
     let mut stmt = conn
-        .prepare("SELECT preview, use_count FROM clips ORDER BY use_count DESC, created_at DESC LIMIT 5")
+        .prepare(
+            "SELECT preview, use_count FROM clips ORDER BY use_count DESC, created_at DESC LIMIT 5",
+        )
         .map_err(|e| e.to_string())?;
     let rows = stmt
         .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
@@ -403,7 +428,9 @@ pub fn upsert_file(conn: &Connection, paths: &[String]) -> Result<Option<i64>, S
         let p = std::path::Path::new(&paths[0]);
         format!(
             "[File] {}",
-            p.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| paths[0].clone())
+            p.file_name()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_else(|| paths[0].clone())
         )
     } else {
         format!("[File] {} +{} more", paths[0], paths.len() - 1)

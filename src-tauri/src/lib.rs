@@ -10,9 +10,6 @@ macro_rules! cvlog {
 mod db;
 mod win;
 
-
-
-
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::Ordering;
 use std::sync::Mutex;
@@ -30,11 +27,19 @@ pub struct Settings {
     pub sensitive_keywords: Vec<String>,
 }
 
-fn default_hotkey() -> String { "Alt+V".into() }
+fn default_hotkey() -> String {
+    "Alt+V".into()
+}
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { history_limit: 1000, panel_height: 540.0, autostart: false, hotkey: default_hotkey(), sensitive_keywords: Vec::new() }
+        Self {
+            history_limit: 1000,
+            panel_height: 540.0,
+            autostart: false,
+            hotkey: default_hotkey(),
+            sensitive_keywords: Vec::new(),
+        }
     }
 }
 
@@ -137,8 +142,19 @@ fn handle_clipboard_change(app: &AppHandle) {
     }
     let st = app.state::<db::Db>();
     let conn = st.0.lock().unwrap_or_else(|p| p.into_inner());
-    let limit = app.state::<SettingsState>().0.lock().unwrap_or_else(|p| p.into_inner()).history_limit;
-    let keywords: Vec<String> = app.state::<SettingsState>().0.lock().unwrap_or_else(|p| p.into_inner()).sensitive_keywords.clone();
+    let limit = app
+        .state::<SettingsState>()
+        .0
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .history_limit;
+    let keywords: Vec<String> = app
+        .state::<SettingsState>()
+        .0
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .sensitive_keywords
+        .clone();
     let mut captured = false;
     // priority: files > rich text/plain > image
     if let Some(files) = win::read_clipboard_files() {
@@ -165,7 +181,10 @@ fn handle_clipboard_change(app: &AppHandle) {
             let lower = clean.to_lowercase();
             // keyword filter applies to both the inline and the oversized path —
             // a >256KB copy containing a sensitive word must not be written to disk
-            if keywords.iter().any(|k| !k.trim().is_empty() && lower.contains(&k.trim().to_lowercase())) {
+            if keywords
+                .iter()
+                .any(|k| !k.trim().is_empty() && lower.contains(&k.trim().to_lowercase()))
+            {
                 eprintln!("[cv] text matched sensitive keyword — skipped");
             } else if t.len() <= 256 * 1024 {
                 if db::upsert_text(&conn, &clean).is_ok() {
@@ -181,10 +200,15 @@ fn handle_clipboard_change(app: &AppHandle) {
                 let mut hasher = std::collections::hash_map::DefaultHasher::new();
                 std::hash::Hash::hash(&clean, &mut hasher);
                 let path = dir.join(format!("{:016x}.txt", std::hash::Hasher::finish(&hasher)));
-                if std::fs::write(&path, &clean).is_err() { return; }
+                if std::fs::write(&path, &clean).is_err() {
+                    return;
+                }
                 let short: String = clean.chars().take(2000).collect();
-                match db::upsert_text_file(&conn, &short, &path.to_string_lossy().as_ref()) {
-                    Ok(_) => { captured = true; cvlog!("[cv] big text stored: {}", path.display()); }
+                match db::upsert_text_file(&conn, &short, path.to_string_lossy().as_ref()) {
+                    Ok(_) => {
+                        captured = true;
+                        cvlog!("[cv] big text stored: {}", path.display());
+                    }
                     Err(e) => cvlog!("[cv] big text upsert ERR: {e}"),
                 }
             }
@@ -222,8 +246,6 @@ fn handle_clipboard_change(app: &AppHandle) {
     }
 }
 
-
-
 /// Removes control characters that break rendering/search (keeps newline, CR, tab).
 fn sanitize_text(s: &str) -> String {
     s.chars()
@@ -233,10 +255,7 @@ fn sanitize_text(s: &str) -> String {
 
 fn html_to_plain(html: &[u8]) -> String {
     let s = String::from_utf8_lossy(html);
-    let body = match (
-        s.find("<!--StartFragment-->"),
-        s.find("<!--EndFragment-->"),
-    ) {
+    let body = match (s.find("<!--StartFragment-->"), s.find("<!--EndFragment-->")) {
         (Some(a), Some(b)) if a < b => &s[a + 20..b],
         _ => &s[..],
     };
@@ -250,8 +269,7 @@ fn html_to_plain(html: &[u8]) -> String {
             _ => {}
         }
     }
-    out
-        .replace("&amp;", "&")
+    out.replace("&amp;", "&")
         .replace("&lt;", "<")
         .replace("&gt;", ">")
         .replace("&quot;", "\"")
@@ -319,15 +337,23 @@ fn hide_panel(app: &AppHandle) {
 #[tauri::command]
 fn report_error(app: AppHandle, msg: String) {
     eprintln!("[cv-js-error] {msg}");
-    let line = format!("{:?} {msg}
-", std::time::SystemTime::now());
+    let line = format!(
+        "{:?} {msg}
+",
+        std::time::SystemTime::now()
+    );
     // cap the log so a failing webview can't grow it unbounded
-    if let Ok(meta) = std::fs::metadata(app.path().app_data_dir().unwrap_or_default().join("js-errors.log")) {
+    if let Ok(meta) = std::fs::metadata(
+        app.path()
+            .app_data_dir()
+            .unwrap_or_default()
+            .join("js-errors.log"),
+    ) {
         if meta.len() > 1_000_000 {
             return;
         }
     }
-    if let Some(mut path) = app.path().app_data_dir().ok() {
+    if let Ok(mut path) = app.path().app_data_dir() {
         path.push("js-errors.log");
         let _ = std::fs::OpenOptions::new()
             .create(true)
@@ -348,7 +374,11 @@ fn heartbeat() {
 }
 
 #[tauri::command]
-fn list_clips(state: tauri::State<db::Db>, filter: String, query: String) -> Result<Vec<db::Clip>, String> {
+fn list_clips(
+    state: tauri::State<db::Db>,
+    filter: String,
+    query: String,
+) -> Result<Vec<db::Clip>, String> {
     let conn = state.0.lock().unwrap_or_else(|p| p.into_inner());
     db::list(&conn, &filter, &query)
 }
@@ -364,7 +394,11 @@ fn get_settings(state: tauri::State<SettingsState>) -> Settings {
 }
 
 #[tauri::command]
-fn set_settings(app: AppHandle, state: tauri::State<SettingsState>, settings: Settings) -> Result<(), String> {
+fn set_settings(
+    app: AppHandle,
+    state: tauri::State<SettingsState>,
+    settings: Settings,
+) -> Result<(), String> {
     // hotkey first: on conflict (another app owns the combo) we fail loudly
     // and keep the previous settings — the UI shows the error toast
     register_hotkey_via_main(&app, &settings.hotkey)?;
@@ -377,9 +411,12 @@ fn set_settings(app: AppHandle, state: tauri::State<SettingsState>, settings: Se
     Ok(())
 }
 
-
 #[tauri::command]
-fn save_panel_height(app: AppHandle, state: tauri::State<SettingsState>, h: f64) -> Result<(), String> {
+fn save_panel_height(
+    app: AppHandle,
+    state: tauri::State<SettingsState>,
+    h: f64,
+) -> Result<(), String> {
     let h = h.clamp(360.0, 900.0);
     let mut s = state.0.lock().unwrap_or_else(|p| p.into_inner());
     s.panel_height = h;
@@ -417,7 +454,8 @@ fn paste_clip(app: AppHandle, state: tauri::State<db::Db>, id: i64) -> Result<()
             win::write_clipboard_files(&paths)
         }
         "html" => {
-            let (plain, html) = db::get_html(&state.0.lock().unwrap_or_else(|p| p.into_inner()), id)?;
+            let (plain, html) =
+                db::get_html(&state.0.lock().unwrap_or_else(|p| p.into_inner()), id)?;
             win::write_clipboard_text(&plain)
                 && (html.is_empty() || win::write_clipboard_html(&html))
         }
@@ -455,15 +493,19 @@ fn paste_clip(app: AppHandle, state: tauri::State<db::Db>, id: i64) -> Result<()
     // restore their control focus asynchronously); 30ms was too early
     std::thread::sleep(Duration::from_millis(20));
     unsafe {
-        use windows::Win32::UI::WindowsAndMessaging::{GetGUIThreadInfo, GUITHREADINFO, GetForegroundWindow};
+        use windows::Win32::UI::WindowsAndMessaging::{
+            GetForegroundWindow, GetGUIThreadInfo, GUITHREADINFO,
+        };
         let fg = GetForegroundWindow();
         let thread = windows::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId(fg, None);
-        let mut gi = GUITHREADINFO { cbSize: std::mem::size_of::<GUITHREADINFO>() as u32, ..Default::default() };
+        let mut gi = GUITHREADINFO {
+            cbSize: std::mem::size_of::<GUITHREADINFO>() as u32,
+            ..Default::default()
+        };
         let _ = GetGUIThreadInfo(thread, &mut gi);
         eprintln!(
             "[cv] send-time: fg={:x} focus={:x}",
-            fg.0 as usize,
-            gi.hwndFocus.0 as usize
+            fg.0 as usize, gi.hwndFocus.0 as usize
         );
     }
     cvlog!("[cv] paste: sending ctrl+v");
@@ -565,9 +607,8 @@ pub fn run() {
                                 )
                                 .map(|c| c > 0)
                                 .unwrap_or(true);
-                            if !referenced {
-                                if std::fs::remove_file(&p).is_ok() { removed += 1; }
-                            }
+                            if !referenced
+                                && std::fs::remove_file(&p).is_ok() { removed += 1; }
                         }
                     }
                     // also purge rows whose image file no longer exists —

@@ -1,5 +1,6 @@
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::Mutex as StdMutex;
+use tauri::Manager;
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::HBRUSH;
@@ -9,7 +10,6 @@ use windows::Win32::System::Memory::*;
 use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
 use windows::Win32::UI::Input::KeyboardAndMouse::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
-use tauri::Manager;
 
 pub const CF_UNICODETEXT: u32 = 13;
 pub const CF_DIB: u32 = 8;
@@ -48,7 +48,14 @@ pub fn read_clipboard_text() -> Option<String> {
         return None;
     }
     unsafe {
-        let h = match GetClipboardData(CF_UNICODETEXT) { Ok(h) => h, Err(e) => { cvlog!("[cv] read: GetData err {e}"); let _ = CloseClipboard(); return None; } };
+        let h = match GetClipboardData(CF_UNICODETEXT) {
+            Ok(h) => h,
+            Err(e) => {
+                cvlog!("[cv] read: GetData err {e}");
+                let _ = CloseClipboard();
+                return None;
+            }
+        };
         let hg = HGLOBAL(h.0);
         let ptr = GlobalLock(hg) as *const u16;
         if ptr.is_null() {
@@ -83,7 +90,11 @@ pub fn read_clipboard_dib_vec() -> Option<Vec<u8>> {
     unsafe {
         let h = match GetClipboardData(CF_DIB) {
             Ok(h) => h,
-            Err(e) => { cvlog!("[cv] read: GetData err {e}"); let _ = CloseClipboard(); return None; }
+            Err(e) => {
+                cvlog!("[cv] read: GetData err {e}");
+                let _ = CloseClipboard();
+                return None;
+            }
         };
         let hg = HGLOBAL(h.0);
         let ptr = GlobalLock(hg) as *const u8;
@@ -116,7 +127,7 @@ pub fn dib_to_png(dib: &[u8]) -> Option<(Vec<u8>, u32, u32)> {
     }
     let top_down = height < 0;
     let h = height.unsigned_abs();
-    let stride = ((width as usize * bpp as usize + 31) / 32) * 4;
+    let stride = (width as usize * bpp as usize).div_ceil(32) * 4;
     let header_size = read_i32(dib, 0) as usize;
     let compression = u32::from_le_bytes([dib[16], dib[17], dib[18], dib[19]]);
     // BI_BITFIELDS (3): channel masks follow a 40-byte header, or live inside
@@ -137,12 +148,12 @@ pub fn dib_to_png(dib: &[u8]) -> Option<(Vec<u8>, u32, u32)> {
         // exists only in BITMAPV4/V5 headers — reading it from pixel data
         // corrupts alpha
         let mask_count = if header_size >= 56 { 4 } else { 3 };
-        for slot in 0..mask_count {
+        for (slot, mask_out) in masks.iter_mut().enumerate().take(mask_count) {
             let o = 40 + slot * 4;
             if o + 4 <= dib.len() {
                 let m = u32::from_le_bytes([dib[o], dib[o + 1], dib[o + 2], dib[o + 3]]);
                 if m != 0 {
-                    masks[slot] = m;
+                    *mask_out = m;
                 }
             }
         }
@@ -179,12 +190,7 @@ pub fn dib_to_png(dib: &[u8]) -> Option<(Vec<u8>, u32, u32)> {
                     decode(v, masks[3]),
                 )
             } else {
-                (
-                    px[si + 2],
-                    px[si + 1],
-                    px[si],
-                    255u8,
-                )
+                (px[si + 2], px[si + 1], px[si], 255u8)
             };
             buf[di] = r;
             buf[di + 1] = g;
@@ -300,14 +306,16 @@ pub fn write_clipboard_text(s: &str) -> bool {
     }
 }
 
-
 pub fn mark_self_write() {
     // stamp the clipboard sequence number our write produced. Any clipboard
     // update — ours or external — bumps the counter and ours re-stamp it on
     // every write, so equality can only mean "the pending update is ours";
     // no time window needed (a delayed listener thread used to fall outside
     // the old 600ms gate and record our own paste as a new clip)
-    SELF_WRITE_SEQ.store(unsafe { GetClipboardSequenceNumber() } as isize, Ordering::SeqCst);
+    SELF_WRITE_SEQ.store(
+        unsafe { GetClipboardSequenceNumber() } as isize,
+        Ordering::SeqCst,
+    );
 }
 
 pub fn is_self_write() -> bool {
@@ -334,7 +342,11 @@ pub fn set_noactivate(hwnd: isize) {
     unsafe {
         let h = HWND(hwnd as _);
         let ex = GetWindowLongPtrW(h, GWL_EXSTYLE);
-        SetWindowLongPtrW(h, GWL_EXSTYLE, ex | (WS_EX_NOACTIVATE.0 | WS_EX_TOOLWINDOW.0) as isize);
+        SetWindowLongPtrW(
+            h,
+            GWL_EXSTYLE,
+            ex | (WS_EX_NOACTIVATE.0 | WS_EX_TOOLWINDOW.0) as isize,
+        );
     }
 }
 
@@ -382,7 +394,6 @@ pub fn send_ctrl_v() {
     );
 }
 
-
 /// Remembers which child control inside `target` currently has keyboard focus,
 /// so it can be restored after the panel (which takes focus) is hidden.
 pub fn capture_focus(target: isize) {
@@ -398,11 +409,14 @@ pub fn capture_focus(target: isize) {
         if GetGUIThreadInfo(thread, &mut gi).is_ok() {
             // the caret owner is where typing lands; WinForms reports the
             // top-level form as hwndFocus but keeps hwndCaret on the control
-            let best = if !gi.hwndCaret.0.is_null() { gi.hwndCaret } else { gi.hwndFocus };
+            let best = if !gi.hwndCaret.0.is_null() {
+                gi.hwndCaret
+            } else {
+                gi.hwndFocus
+            };
             eprintln!(
                 "[cv] capture_focus: target={target:x} focus={:x} caret={:x}",
-                gi.hwndFocus.0 as usize,
-                gi.hwndCaret.0 as usize
+                gi.hwndFocus.0 as usize, gi.hwndCaret.0 as usize
             );
             FOCUS_HWND.store(best.0 as isize, Ordering::SeqCst);
         } else {
@@ -533,6 +547,7 @@ pub fn spawn_clipboard_listener<F: FnMut() + Send + 'static>(mut on_change: F) {
 
 #[repr(C)]
 #[derive(Clone, Copy)]
+#[allow(clippy::upper_case_acronyms)] // Win32 API name — keep the correspondence obvious
 struct MSLLHOOKSTRUCT {
     pt: POINT,
     _extra: [u8; 24],
@@ -541,7 +556,13 @@ struct MSLLHOOKSTRUCT {
 unsafe extern "system" fn mouse_proc(n_code: i32, w_param: WPARAM, l_param: LPARAM) -> LRESULT {
     if n_code >= 0 && w_param.0 as u32 == WM_LBUTTONDOWN {
         let p = *(l_param.0 as *const MSLLHOOKSTRUCT);
-        cvlog!("[cv] hook click at ({},{}) visible={} in_panel={}", p.pt.x, p.pt.y, PANEL_VISIBLE.load(Ordering::SeqCst), point_in_panel(p.pt.x, p.pt.y));
+        cvlog!(
+            "[cv] hook click at ({},{}) visible={} in_panel={}",
+            p.pt.x,
+            p.pt.y,
+            PANEL_VISIBLE.load(Ordering::SeqCst),
+            point_in_panel(p.pt.x, p.pt.y)
+        );
         if PANEL_VISIBLE.load(Ordering::SeqCst) && !point_in_panel(p.pt.x, p.pt.y) {
             // flag only — the main thread polls and hides (hiding from the hook
             // thread risks deadlock)
@@ -553,12 +574,7 @@ unsafe extern "system" fn mouse_proc(n_code: i32, w_param: WPARAM, l_param: LPAR
 
 pub fn install_mouse_hook() {
     std::thread::spawn(|| unsafe {
-        let hook = SetWindowsHookExW(
-            WH_MOUSE_LL,
-            Some(mouse_proc),
-            None,
-            0,
-        );
+        let hook = SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_proc), None, 0);
         let _ = hook;
         let mut msg = MSG::default();
         while GetMessageW(&mut msg, None, 0, 0).as_bool() {
@@ -573,7 +589,14 @@ mod tests {
     use super::*;
 
     fn solid_png(w: u32, h: u32, px: [u8; 4]) -> Vec<u8> {
-        let img = image::RgbaImage::from_raw(w, h, { let mut v = Vec::new(); for _ in 0..(w*h) { v.extend_from_slice(&px); } v }).unwrap();
+        let img = image::RgbaImage::from_raw(w, h, {
+            let mut v = Vec::new();
+            for _ in 0..(w * h) {
+                v.extend_from_slice(&px);
+            }
+            v
+        })
+        .unwrap();
         let mut c = std::io::Cursor::new(Vec::new());
         image::DynamicImage::ImageRgba8(img)
             .write_to(&mut c, image::ImageFormat::Png)
@@ -621,14 +644,16 @@ mod tests {
     }
 }
 
-
 /// True when the current clipboard was flagged sensitive by the copying app
 /// (Bitwarden / 1Password / KeePass / browsers set these on password copies).
 /// - "ExcludeClipboardContentFromMonitorProcessing": presence alone = exclude
 /// - "CanIncludeInClipboardHistory": DWORD 0 = exclude
 pub fn clipboard_marked_sensitive() -> bool {
     let reg = |name: &str| -> u32 {
-        let n = name.encode_utf16().chain(std::iter::once(0)).collect::<Vec<u16>>();
+        let n = name
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect::<Vec<u16>>();
         unsafe { RegisterClipboardFormatW(PCWSTR(n.as_ptr())) }
     };
     unsafe {
@@ -679,7 +704,11 @@ pub fn read_clipboard_files() -> Option<Vec<String>> {
     unsafe {
         let h = match GetClipboardData(CF_HDROP) {
             Ok(h) => h,
-            Err(e) => { cvlog!("[cv] files: GetData err {e}"); let _ = CloseClipboard(); return None; }
+            Err(e) => {
+                cvlog!("[cv] files: GetData err {e}");
+                let _ = CloseClipboard();
+                return None;
+            }
         };
         let hg = HGLOBAL(h.0);
         let ptr = GlobalLock(hg) as *const u8;
@@ -801,7 +830,11 @@ pub fn read_clipboard_html() -> Option<Vec<u8>> {
     unsafe {
         let h = match GetClipboardData(fmt) {
             Ok(h) => h,
-            Err(e) => { cvlog!("[cv] read: GetData err {e}"); let _ = CloseClipboard(); return None; }
+            Err(e) => {
+                cvlog!("[cv] read: GetData err {e}");
+                let _ = CloseClipboard();
+                return None;
+            }
         };
         let hg = HGLOBAL(h.0);
         let ptr = GlobalLock(hg) as *const u8;
@@ -853,7 +886,6 @@ pub fn write_clipboard_html(html: &[u8]) -> bool {
     }
 }
 
-
 /// Reads raw bytes of the registered "PNG" format if present (Snipping Tool,
 /// browsers and Office write it; byte-exact, no DIB decoding involved).
 pub fn read_clipboard_png_raw() -> Option<Vec<u8>> {
@@ -868,7 +900,11 @@ pub fn read_clipboard_png_raw() -> Option<Vec<u8>> {
     unsafe {
         let h = match GetClipboardData(fmt) {
             Ok(h) => h,
-            Err(e) => { cvlog!("[cv] read: GetData err {e}"); let _ = CloseClipboard(); return None; }
+            Err(e) => {
+                cvlog!("[cv] read: GetData err {e}");
+                let _ = CloseClipboard();
+                return None;
+            }
         };
         let hg = HGLOBAL(h.0);
         let ptr = GlobalLock(hg) as *const u8;
@@ -915,10 +951,11 @@ pub fn log_clipboard_formats() {
             names.push(name);
         }
     }
-    unsafe { let _ = CloseClipboard(); }
+    unsafe {
+        let _ = CloseClipboard();
+    }
     cvlog!("[cv] formats: {:?}", names);
 }
-
 
 // ---------- resident injector ----------
 // keybd_event issued from inside the app process is silently swallowed
@@ -970,7 +1007,6 @@ pub fn injector_loop() -> ! {
         }
     }
 }
-
 
 /// (foreground hwnd, focused-child hwnd) of the current foreground thread.
 fn foreground_focus() -> (isize, isize) {
@@ -1085,7 +1121,6 @@ pub fn request_paste_keystroke(target: isize, focus: isize) -> bool {
     }
 }
 
-
 /// Hides the zoom preview when the real cursor has left BOTH the panel and
 /// the preview window for ~450ms. Position-based, so no event-order races.
 pub fn spawn_zoom_watchdog(app: tauri::AppHandle<tauri::Wry>) {
@@ -1128,7 +1163,10 @@ pub fn set_autostart(enable: bool) -> bool {
         .encode_utf16()
         .chain(std::iter::once(0))
         .collect();
-    let name: Vec<u16> = "ClipVault".encode_utf16().chain(std::iter::once(0)).collect();
+    let name: Vec<u16> = "ClipVault"
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
     unsafe {
         let mut hk = HKEY::default();
         if RegOpenKeyExW(
@@ -1153,10 +1191,10 @@ pub fn set_autostart(enable: bool) -> bool {
                 PCWSTR(name.as_ptr()),
                 0,
                 REG_SZ,
-                Some(&std::slice::from_raw_parts(
+                Some(std::slice::from_raw_parts(
                     cmd.as_ptr() as *const u8,
                     cmd.len() * 2,
-                ).to_vec()),
+                )),
             )
             .is_ok()
         } else {
@@ -1173,12 +1211,14 @@ pub fn set_autostart(enable: bool) -> bool {
 mod file_tests {
     use super::*;
 
-
     #[test]
     fn parses_canonical_dropfiles() {
         // byte pattern captured from a real Windows Forms SetFileDropList:
         // pFiles=20, zeros, fWide=0xFFFFFFFF at offset 16
-        let path: Vec<u16> = "C:\\win\\a.txt".encode_utf16().chain(std::iter::once(0)).collect();
+        let path: Vec<u16> = "C:\\win\\a.txt"
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
         let mut blob = vec![0x14u8, 0, 0, 0]; // pFiles = 20 (0x14)
         blob.extend_from_slice(&[0u8; 12]); // pt + fNC
         blob.extend_from_slice(&[0xFF, 0xFF, 0xFF, 0xFF]); // fWide @16
