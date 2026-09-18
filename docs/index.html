@@ -326,7 +326,7 @@ code { font-family: 'Cascadia Code', Consolas, monospace; font-size: 12.5px;
           <h3 data-i18n="c1t">打几个字，找到那条</h3>
           <p data-i18n="c1p">搜索按内容匹配，不用记得是从哪个网页、哪个文档复制的。</p>
         </div>
-        <span class="meta">📌 <b data-i18n="m_pin">已置顶</b></span>
+        <span class="meta"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-1px"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg> <b data-i18n="m_pin">已置顶</b></span>
       </div>
       <div class="entry">
         <span class="chip">≡</span>
@@ -579,7 +579,10 @@ function apply() {
   document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en'
   document.documentElement.dataset.theme = theme
   document.getElementById('langBtn').textContent = lang === 'zh' ? 'EN' : '中文'
-  document.getElementById('themeBtn').textContent = theme === 'dark' ? '☀ ' + t('theme_light') : '🌙 ' + t('theme_dark')
+  const icon = theme === 'dark'
+    ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>'
+    : '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>'
+  document.getElementById('themeBtn').innerHTML = icon + ' ' + (theme === 'dark' ? t('theme_light') : t('theme_dark'))
   document.querySelectorAll('[data-i18n]').forEach(e => { e.textContent = t(e.dataset.i18n) })
   document.querySelectorAll('[data-i18n-html]').forEach(e => { e.innerHTML = t(e.dataset.i18nHtml) })
   document.title = lang === 'zh' ? 'ClipVault — Windows 剪贴板历史管理器' : 'ClipVault — Windows clipboard history manager'
