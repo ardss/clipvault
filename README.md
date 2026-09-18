@@ -12,7 +12,7 @@ Press `Alt+V` to summon the panel → search → click to paste back where you c
 
 ## Features
 
-- **Unlimited history**: text, images, files, rich text (web/Word formats), links — survives reboot
+- **Long-lived history**: text, images, files, rich text (web/Word formats), links — survives reboot, with configurable retention
 - **Search**: instant keyword filtering (Chinese and English)
 - **Pin**: keep frequently used entries on top; exempt from cleanup
 - **Filters**: all / text / images / links / files / pinned
@@ -23,6 +23,8 @@ Press `Alt+V` to summon the panel → search → click to paste back where you c
 - **Stats**: totals / categories / 7-day trend / top 5 pasted
 - **Optional autostart**, tray icon, draggable panel height that sticks
 - **Pause capture** and **wipe all history** with one click each
+- **Configurable summon hotkey** (conflict-safe re-registration)
+- **Oversized text** (>256 KB) is offloaded to a local file with an inline preview — nothing is silently dropped
 
 ## Privacy
 
@@ -44,7 +46,7 @@ npx tauri build        # output in src-tauri/target/release/bundle/
 
 Tauri 2 + Vue 3 + Rust (rusqlite / hand-written Win32 layer).
 
-> ⚠️ Always build releases with `npx tauri build`. A bare `cargo build --release`
+> **Note:** Always build releases with `npx tauri build`. A bare `cargo build --release`
 > leaves the dev configuration on and the window will try to load the UI from
 > the vite dev server (see [docs/postmortem-2026-09-11.md](docs/postmortem-2026-09-11.md)).
 

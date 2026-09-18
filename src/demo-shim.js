@@ -25,7 +25,7 @@ import seedShot2 from './assets/seed-shot2.png'
       { id: 'd6', kind: 'html', preview: 'ClipVault — 复制过的一切，都在', content: 'ClipVault — 复制过的一切，都在', pinned: false, created_at: now - 5 * HOUR, paste_count: 1 },
       { id: 'd7', kind: 'text', preview: 'git rebase -i HEAD~3', content: 'git rebase -i HEAD~3', pinned: true, created_at: now - 7 * HOUR, paste_count: 8 },
       { id: 'd8', kind: 'image', preview: '', content: '', image_path: seedShot2, pinned: false, created_at: t0 - 10 * HOUR, paste_count: 0 },
-      { id: 'd9', kind: 'text', preview: '收件人：me@example.com / 工牌号 13397', content: '收件人：me@example.com / 工牌号 13397', pinned: true, created_at: t0 - 26 * HOUR, paste_count: 4 },
+      { id: 'd9', kind: 'text', preview: '收件人：me@example.com / 工牌号 00000', content: '收件人：me@example.com / 工牌号 00000', pinned: true, created_at: t0 - 26 * HOUR, paste_count: 4 },
       { id: 'd10', kind: 'text', preview: '公交卡充值 50 元成功，余额 86.5 元', content: '公交卡充值 50 元成功，余额 86.5 元', pinned: false, created_at: t0 - 30 * HOUR, paste_count: 0 },
       { id: 'd11', kind: 'text', preview: 'function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms) } }', content: 'function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms) } }', pinned: false, created_at: t0 - 52 * HOUR, paste_count: 2 },
     ]
@@ -114,6 +114,11 @@ import seedShot2 from './assets/seed-shot2.png'
           case 'heartbeat': return resolve(Date.now())
           case 'list_clips': return resolve(listClips(args))
           case 'stats': return resolve(stats())
+          case 'clear_history': {
+  const rows = load(); save([])
+  fire('clips-changed', null)
+  return resolve(rows.length)
+}
           case 'get_settings': return resolve(loadSettings() || { history_limit: 1000, panel_height: 540, autostart: false, hotkey: 'Alt+V', sensitive_keywords: [], paused: false })
           case 'set_settings': try { localStorage.setItem(LS_SET, JSON.stringify(args.settings)) } catch (e) {} return resolve(null)
           case 'toggle_pin': {

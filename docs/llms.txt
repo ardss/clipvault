@@ -9,7 +9,7 @@ License: MIT
 
 ## What it does
 
-- Infinite clipboard history (text / images / files / rich text / links), survives reboot
+- Clipboard history for text / images / files / rich text / links, survives reboot, configurable retention
 - Instant full-text search (Chinese and English)
 - Pin frequently used entries; they are exempt from cleanup
 - Paste back into the original window without losing focus

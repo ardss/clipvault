@@ -15,20 +15,6 @@ pub fn get_cursor_pos() -> (i32, i32) {
     }
 }
 
-// kept as a fallback: the panel currently uses WS_EX_NOACTIVATE set at creation
-#[allow(dead_code)]
-pub fn set_noactivate(hwnd: isize) {
-    unsafe {
-        let h = HWND(hwnd as _);
-        let ex = GetWindowLongPtrW(h, GWL_EXSTYLE);
-        SetWindowLongPtrW(
-            h,
-            GWL_EXSTYLE,
-            ex | (WS_EX_NOACTIVATE.0 | WS_EX_TOOLWINDOW.0) as isize,
-        );
-    }
-}
-
 pub fn update_panel_rect(hwnd: isize) {
     unsafe {
         let mut r = RECT::default();
@@ -54,23 +40,6 @@ pub fn point_in_panel(x: i32, y: i32) -> bool {
         }
     }
     false
-}
-
-// in-process paste is unreliable in some environments (see injector note below);
-// kept for debugging / fallback use
-#[allow(dead_code)]
-pub fn send_ctrl_v() {
-    unsafe {
-        keybd_event(VK_CONTROL.0 as u8, 0, KEYBD_EVENT_FLAGS(0), 0);
-        keybd_event(VK_V.0 as u8, 0, KEYBD_EVENT_FLAGS(0), 0);
-        std::thread::sleep(std::time::Duration::from_millis(30));
-        keybd_event(VK_V.0 as u8, 0, KEYEVENTF_KEYUP, 0);
-        keybd_event(VK_CONTROL.0 as u8, 0, KEYEVENTF_KEYUP, 0);
-    }
-    eprintln!(
-        "[cv] send_ctrl_v: done, ctrl_held={:x}",
-        unsafe { GetAsyncKeyState(VK_CONTROL.0 as i32) } as usize & 0xFFFF
-    );
 }
 
 /// Remembers which child control inside `target` currently has keyboard focus,

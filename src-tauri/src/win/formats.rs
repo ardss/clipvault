@@ -189,9 +189,8 @@ pub fn write_clipboard_html(html: &[u8]) -> bool {
             let _ = GlobalFree(h);
         }
         let _ = CloseClipboard();
-        // the text write's 600ms self-write window may expire before the
-        // listener sees this second write — mark again so our own HTML
-        // paste isn't recorded as a new clip
+        // stamp the sequence number again so the listener attributes this
+        // second write (after the text write) to us as well
         if ok {
             mark_self_write();
         }

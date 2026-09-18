@@ -25,7 +25,7 @@ const i18n = {
     statTotal:'总条目', statText:'文本', statImage:'图片', statLink:'链接', statFile:'文件',
     statPinned:'置顶', statToday:'今日新增', statPastes:'累计粘贴', statDaily:'近 7 天复制量',
     statTop:'最常粘贴 Top 5', times:'次',
-    setLimit:'历史上限', setLimitHint:'超出后自动清理最旧记录（置顶除外）', setAuto:'开机自动启动', setAutoHint:'登录 Windows 后在后台静默运行', shortcut:'呼出快捷键', about:'关于', save:'保存', saved:'设置已保存', setHotkey:'呼出热键', setHotkeyHint:'如 Alt+V / Ctrl+Alt+V，保存后生效；若被占用会提示失败', setSensitive:'敏感词过滤', setSensitivePh:'token, password, 密码', setSensitiveHint:'复制的内容包含这些词时不记录（逗号分隔）', setPause:'暂停采集', setPauseHint:'开启后照常复制粘贴，但不记录任何新内容', clearAll:'清空历史', clearAllHint:'删除所有条目及其图片与附件文件，不可恢复', clearBtn:'清空全部历史', clearConfirm:'再点一次确认！', cleared:'已清空 {n} 条',
+    setLimit:'历史上限', setLimitHint:'超出后自动清理最旧记录（置顶除外）', setAuto:'开机自动启动', setAutoHint:'登录 Windows 后在后台静默运行', shortcut:'呼出快捷键', about:'关于', save:'保存', saved:'设置已保存', setHotkey:'呼出热键', setHotkeyHint:'如 Alt+V / Ctrl+Alt+V，保存后生效；若被占用会提示失败', setSensitive:'敏感词过滤', setSensitivePh:'token, password, 密码', setSensitiveHint:'复制的内容包含这些词时不记录（逗号分隔）', setPause:'暂停采集', setPauseHint:'开启后照常复制粘贴，但不记录任何新内容', clearAll:'清空历史', clearAllHint:'删除所有条目及其图片与附件文件，不可恢复', clearBtn:'清空全部历史', clearConfirm:'再点一次确认！', cleared:'已清空 {n} 条', pausedTag:'采集中断·已暂停',
     focusLost:'已复制到剪贴板，但无法聚焦原窗口，请手动 Ctrl+V', pasteFail:'粘贴失败，内容仍在剪贴板', dayToday:'今天', dayYesterday:'昨天', dayEarlier:'更早',
     demoPasted:'在线演示：实际使用时这里会粘贴到原窗口',
   },
@@ -37,7 +37,7 @@ const i18n = {
     statTotal:'Total', statText:'Text', statImage:'Images', statLink:'Links', statFile:'Files',
     statPinned:'Pinned', statToday:'Today', statPastes:'Pastes', statDaily:'Last 7 days',
     statTop:'Top 5 pasted', times:'×',
-    setLimit:'History limit', setLimitHint:'Oldest unpinned items are cleaned up beyond the limit', setAuto:'Launch at startup', setAutoHint:'Runs quietly in the background after sign-in', shortcut:'Summon shortcut', about:'About', save:'Save', saved:'Settings saved', setHotkey:'Summon hotkey', setHotkeyHint:'e.g. Alt+V / Ctrl+Alt+V — applied on save; warns if taken', setSensitive:'Sensitive filter', setSensitivePh:'token, password, secret', setSensitiveHint:'Copies containing these words are never recorded (comma separated)', setPause:'Pause capture', setPauseHint:'Copy and paste as usual — nothing new is recorded while on', clearAll:'Clear history', clearAllHint:'Deletes every entry with its images and side files. Cannot be undone.', clearBtn:'Clear all history', clearConfirm:'Click again to confirm!', cleared:'Cleared {n} entries',
+    setLimit:'History limit', setLimitHint:'Oldest unpinned items are cleaned up beyond the limit', setAuto:'Launch at startup', setAutoHint:'Runs quietly in the background after sign-in', shortcut:'Summon shortcut', about:'About', save:'Save', saved:'Settings saved', setHotkey:'Summon hotkey', setHotkeyHint:'e.g. Alt+V / Ctrl+Alt+V — applied on save; warns if taken', setSensitive:'Sensitive filter', setSensitivePh:'token, password, secret', setSensitiveHint:'Copies containing these words are never recorded (comma separated)', setPause:'Pause capture', setPauseHint:'Copy and paste as usual — nothing new is recorded while on', clearAll:'Clear history', clearAllHint:'Deletes every entry with its images and side files. Cannot be undone.', clearBtn:'Clear all history', clearConfirm:'Click again to confirm!', cleared:'Cleared {n} entries', pausedTag:'Capture paused',
     focusLost:'Copied to clipboard, but could not focus the previous window — press Ctrl+V manually', pasteFail:'Paste failed, content stays on clipboard', dayToday:'Today', dayYesterday:'Yesterday', dayEarlier:'Earlier',
     demoPasted:'Demo: the real app pastes this into your previous window',
   },
@@ -98,12 +98,19 @@ const grouped = computed(() => {
 })
 
 let reqId = 0
+function preserveSelection(prevId) {
+  if (prevId == null) return
+  const idx = flat.value.findIndex((c) => c.id === prevId)
+  selected.value = idx >= 0 ? idx : Math.min(selected.value, flat.value.length - 1)
+}
 async function refresh() {
+  const prevId = flat.value[selected.value]?.id ?? null
   const id = ++reqId
   const r = await invoke('list_clips', { filter: filter.value, query: query.value.trim() })
   if (id !== reqId) return // a newer request already superseded this one
   clips.value = r
   selected.value = -1
+  preserveSelection(prevId)
 }
 function setFilter(f) { filter.value = f; refresh() }
 function clearSearch() { query.value = ''; refresh() }
@@ -129,7 +136,10 @@ watch(settings, () => {
     try {
       await invoke('set_settings', { settings: settings.value })
       showToast(t('saved'))
-    } catch (e) { console.error(e) }
+    } catch (e) {
+      showToast(String(e ?? e.message ?? t('pasteFail')))
+      console.error(e)
+    }
   }, 500)
 }, { deep: true })
 // clear-all is destructive: the button must be clicked twice within 3s
@@ -263,7 +273,7 @@ function onKey(e) {
   // typing in search: only Delete is dangerous (deletes the selected clip);
   // arrows/Enter stay live for list navigation
   if (e.key === 'Escape') {
-    if (showStats.value || showSettings.value) { closeOverlays(); return }
+    if (showStats.value || showSettings.value) { clearArmed.value = false; closeOverlays(); return }
     if (query.value) { clearSearch(); return }
     invoke('hide_panel_cmd')
     return
@@ -318,6 +328,7 @@ onMounted(async () => {
     nextTick(() => document.querySelector('.search')?.focus())
   }))
   window.addEventListener('keydown', onKey)
+  invoke('get_settings').then((st) => { settings.value = st }).catch(() => {})
   refresh()
   if (!isZoomWin) {
     // response-direction watchdog: if a heartbeat round-trip stops resolving
@@ -361,6 +372,7 @@ onBeforeUnmount(() => {
     <div class="topbar">
       <span class="dot"></span>
       <span class="brand">ClipVault</span>
+      <button v-if="settings && settings.paused" class="paused-badge" @click="openSettings()" :title="t('setPauseHint')">{{ t('pausedTag') }}</button>
       <span class="hint">{{ t('copyHint') }}</span>
       <button class="icon-btn" :title="t('statsTitle')" @click="showStats ? closeOverlays() : openStats()">
         <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
@@ -392,7 +404,7 @@ onBeforeUnmount(() => {
     <div class="list" role="listbox" :aria-label="t('all')" v-if="!showStats && !showSettings">
       <div v-if="clips.length === 0" class="empty">
         <div class="empty-title">{{ t('empty') }}</div>
-        <div class="empty-hint">{{ t('emptyHint') }}</div>
+        <div class="empty-hint">{{ settings && settings.paused ? t('setPauseHint') : t('emptyHint') }}</div>
       </div>
       <template v-for="g in grouped" :key="g.label">
         <div class="group-label">{{ g.label }}</div>
@@ -575,6 +587,8 @@ onBeforeUnmount(() => {
 .set-input { width: 100%; margin-top: 8px; padding: 6px 8px; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; outline: none; font-size: 12px; }
 .set-input:focus { border-color: var(--accent); caret-color: var(--accent); }
 .set-head .set-input { width: auto; min-width: 120px; margin-top: 0; text-align: right; }
+.paused-badge { border: 1.5px solid var(--danger); color: var(--danger); background: transparent; border-radius: 999px; padding: 1px 10px; font-size: 11px; cursor: pointer; font-weight: 600; }
+.paused-badge:hover { background: var(--danger); color: #fff; }
 .clear-btn { border: 1.5px solid var(--danger); color: var(--danger); background: transparent; border-radius: 5px; padding: 4px 12px; font-size: 12px; cursor: pointer; font-weight: 600; }
 .clear-btn:hover { background: var(--danger); color: #fff; }
 .clear-btn.armed { background: var(--danger); color: #fff; animation: pulse 1s ease-in-out infinite; }

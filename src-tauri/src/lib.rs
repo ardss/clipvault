@@ -54,10 +54,14 @@ pub static HEARTBEAT: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI6
 
 fn load_settings(app: &AppHandle) -> Settings {
     let dir = app.path().app_data_dir().unwrap_or_default();
-    std::fs::read_to_string(dir.join("settings.json"))
+    let mut s: Settings = std::fs::read_to_string(dir.join("settings.json"))
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    // a "pause for this meeting" must never turn into a permanent silent
+    // stop after a reboot — capture always resumes on launch
+    s.paused = false;
+    s
 }
 
 fn save_settings(app: &AppHandle, s: &Settings) {
@@ -138,7 +142,13 @@ fn handle_clipboard_change(app: &AppHandle) {
     // trusting a "not flagged" result
     // capture paused from settings — copies go to the real clipboard
     // untouched, nothing is recorded
-    if app.state::<SettingsState>().0.lock().unwrap_or_else(|p| p.into_inner()).paused {
+    if app
+        .state::<SettingsState>()
+        .0
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .paused
+    {
         return;
     }
     for _ in 0..3 {
@@ -445,13 +455,16 @@ fn delete_clip(state: tauri::State<db::Db>, id: i64) -> Result<(), String> {
 /// Wipes every clip: rows plus their on-disk images, thumbnails and
 /// oversized-text side files. Returns the number of entries removed.
 #[tauri::command]
-fn clear_history(state: tauri::State<db::Db>) -> Result<usize, String> {
-    let conn = state.0.lock().unwrap_or_else(|p| p.into_inner());
-    let victims = db::clear_all(&conn)?;
+fn clear_history(app: AppHandle, state: tauri::State<db::Db>) -> Result<usize, String> {
+    let victims = {
+        let conn = state.0.lock().unwrap_or_else(|p| p.into_inner());
+        db::clear_all(&conn)?
+    };
     let n = victims.len();
     for (img, txt) in victims {
         db::remove_clip_files(img.as_deref(), txt.as_deref());
     }
+    let _ = app.emit("clips-changed", ());
     Ok(n)
 }
 

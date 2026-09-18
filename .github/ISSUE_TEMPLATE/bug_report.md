@@ -1,10 +1,27 @@
 ---
 name: Bug report
-about: 报告一个问题
+about: Something in ClipVault is broken
 labels: bug
 ---
-**ClipVault 版本**：
-**Windows 版本**：
-**复现步骤**：
-**期望行为**：
-**实际行为**：
+
+**What happened?**
+
+A clear description of what went wrong.
+
+**Steps to reproduce**
+
+1.
+2.
+
+**Expected behavior**
+
+**Environment**
+
+- Windows version:
+- ClipVault version:
+- Copy type involved: text / image / file / rich text
+
+**Attachments**
+
+- `%APPDATA%\com.clipvault.app\js-errors.log` (if the panel showed blank or glitched)
+- Screenshots welcome; **never paste the clipboard content itself** if it may be sensitive

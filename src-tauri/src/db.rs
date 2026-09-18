@@ -262,17 +262,6 @@ pub fn upsert_text_file(
     Ok(Some(id))
 }
 
-/// Full text of an oversized entry (lives in the side file).
-#[allow(dead_code)]
-pub fn get_text_file(conn: &Connection, id: i64) -> Result<Option<String>, String> {
-    let p: Option<String> = conn
-        .query_row("SELECT text_path FROM clips WHERE id=?1", [id], |r| {
-            r.get(0)
-        })
-        .map_err(|e| e.to_string())?;
-    Ok(p.and_then(|p| std::fs::read_to_string(p).ok()))
-}
-
 pub fn toggle_pin(conn: &Connection, id: i64) -> Result<(), String> {
     conn.execute("UPDATE clips SET pinned = 1 - pinned WHERE id=?1", [id])
         .map_err(|e| e.to_string())?;
@@ -289,12 +278,17 @@ pub fn clear_all(conn: &Connection) -> Result<Vec<EvictedFiles>, String> {
             .map_err(|e| e.to_string())?;
         let rows = stmt
             .query_map([], |r| {
-                Ok((r.get::<_, Option<String>>(0)?, r.get::<_, Option<String>>(1)?))
+                Ok((
+                    r.get::<_, Option<String>>(0)?,
+                    r.get::<_, Option<String>>(1)?,
+                ))
             })
             .map_err(|e| e.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?
     };
-    tx.execute("DELETE FROM clips", []).map_err(|e| e.to_string())?;
+    tx.execute("DELETE FROM clips", [])
+        .map_err(|e| e.to_string())?;
     tx.commit().map_err(|e| e.to_string())?;
     Ok(victims)
 }
