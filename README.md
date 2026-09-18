@@ -1,59 +1,73 @@
 # ClipVault
 
-[![Release](https://img.shields.io/github/v/release/ardss/clipvault)](https://github.com/ardss/clipvault/releases)
+[![Release](https://img.shields.io/github/v/release/ardss/clipvault)](../../releases)
+[![CI](https://img.shields.io/github/actions/workflow/status/ardss/clipvault/ci.yml?label=CI)](../../actions/workflows/ci.yml)
 [![License](https://img.shields.io/github/license/ardss/clipvault)](LICENSE)
 
-**Win+V 官方增强版——好看、清爽、极简的 Windows 剪贴板历史管理器。**
+**English** | [简体中文](README.zh-CN.md)
 
-`Alt+V` 呼出 → 搜索 → 点击粘贴回原窗口。纯本地运行，零网络、零账号、零遥测。
+The enhanced Win+V — a clean, minimal Windows clipboard history manager.
 
-## 功能
+Press `Alt+V` to summon the panel → search → click to paste back where you came from. Fully local: zero network, zero account, zero telemetry.
 
-- **无限历史**：文本、图片、文件、富文本（网页/Word 格式）、链接，重启不丢
-- **搜索**：关键字即时过滤（中英文均可）
-- **置顶**：常用内容固定置顶，清理历史时豁免
-- **分类筛选**：全部 / 文本 / 图片 / 链接 / 文件 / 置顶
-- **粘贴回原窗口**：呼出面板不丢光标，点条目内容落回原处
-- **悬停预览**：截断的长文本 / 图片缩略图，悬停在外侧预览窗查看完整内容（可滚动、可划选复制部分文字）
-- **键盘操作**：`↑↓` 选择、`Enter` 粘贴、`Del` 删除、`Esc` 关闭
-- **深浅色主题 + 中英文界面**：面板内一键切换并记住
-- **统计面板**：总量 / 分类 / 近 7 天趋势 / 最常粘贴 Top 5
-- **开机自启**（可选）、托盘常驻、面板高度拖拽调整并记住
+## Features
 
-## 安装
+- **Unlimited history**: text, images, files, rich text (web/Word formats), links — survives reboot
+- **Search**: instant keyword filtering (Chinese and English)
+- **Pin**: keep frequently used entries on top; exempt from cleanup
+- **Filters**: all / text / images / links / files / pinned
+- **Paste back**: the panel never steals focus from your work; click an entry and it lands where you were
+- **Hover preview**: truncated text and image thumbnails expand in a side preview (scrollable, selectable, partially copyable)
+- **Keyboard-first**: `↑↓` navigate, `Enter` paste, `Del` delete, `Esc` close
+- **Dark & light theme, Chinese & English UI**: switch inside the panel, remembered
+- **Stats**: totals / categories / 7-day trend / top 5 pasted
+- **Optional autostart**, tray icon, draggable panel height that sticks
+- **Pause capture** and **wipe all history** with one click each
 
-从 [Releases](../../releases) 下载安装包，或从源码构建：
+## Privacy
+
+- 100% local. Data lives in `%APPDATA%\com.clipvault.app\` (SQLite WAL + PNG files)
+- Password-manager copies are never recorded (sensitive clipboard markers are honored)
+- User-defined sensitive keyword filter
+- No network code in the binary. Details in [SECURITY.md](SECURITY.md)
+
+## Install
+
+Grab an installer from [Releases](../../releases), or build from source:
 
 ```bash
 npm install
-npx tauri build        # 产物在 src-tauri/target/release/bundle/
+npx tauri build        # output in src-tauri/target/release/bundle/
 ```
 
-## 构建
+## Building
 
-Tauri 2 + Vue 3 + Rust（rusqlite / 手写 Win32 层）。
+Tauri 2 + Vue 3 + Rust (rusqlite / hand-written Win32 layer).
 
-> ⚠️ 必须用 `npx tauri build` 构建发布版。裸 `cargo build --release` 不会关闭
-> dev 配置，窗口将从 vite 开发服务器加载界面（详见
-> [docs/postmortem-2026-09-11.md](docs/postmortem-2026-09-11.md) 用 21 小时换的教训）。
+> ⚠️ Always build releases with `npx tauri build`. A bare `cargo build --release`
+> leaves the dev configuration on and the window will try to load the UI from
+> the vite dev server (see [docs/postmortem-2026-09-11.md](docs/postmortem-2026-09-11.md)).
 
-开发模式：
+Development mode:
 
 ```bash
-npx vite --port 5173        # 终端 1
-npx tauri dev               # 终端 2
+npx vite --port 5173        # terminal 1
+npx tauri dev               # terminal 2
 ```
 
-测试：`cd src-tauri && cargo test`（剪贴板往返 / DIB 解码 / DROPFILES 解析）
+Tests: `cd src-tauri && cargo test` (clipboard round-trip / DIB decoding / DROPFILES parsing)
 
-## 技术说明
+## Technical notes
 
-- 剪贴板写入兼容性：图片同时提供标准 CF_DIB（自底向上）与注册 "PNG" 格式，
-  Chromium 内核（Chrome/VS Code/Electron 应用）与 GDI 程序均正常读取；
-  DIB 解码支持 BI_BITFIELDS 通道掩码（截图工具常用）
-- 粘贴按键由常驻注入器子进程发出（部分环境下进程内合成键会被系统吞掉）
-- WebView IPC 心跳看门狗：显示休眠导致通信断流时 10 秒内自动恢复
-- 数据全部存于 `%APPDATA%\com.clipvault.app\`（SQLite WAL + PNG 文件）
+- Clipboard write compatibility: images are offered both as standard CF_DIB
+  (bottom-up) and the registered "PNG" format — Chromium-based apps
+  (Chrome/VS Code/Electron) and GDI apps both read them correctly; DIB
+  decoding supports BI_BITFIELDS channel masks (screenshot tools)
+- The paste keystroke is issued by a resident injector subprocess (in-process
+  synthetic keys are swallowed on some setups)
+- WebView IPC heartbeat watchdog: recovers within 10 s when display sleep
+  breaks the communication channel
+- All data lives in `%APPDATA%\com.clipvault.app\`
 
 ## License
 

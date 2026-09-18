@@ -1,0 +1,35 @@
+# ClipVault
+
+> ClipVault is a free, open-source Windows clipboard history manager. Press Alt+V to summon a searchable panel of everything you have copied — text, images, files, rich text, links. 100% local: no account, no cloud, no network, no telemetry. Data never leaves the machine.
+
+Site: https://ardss.github.io/clipvault/
+Source: https://github.com/ardss/clipvault
+Download: https://github.com/ardss/clipvault/releases
+License: MIT
+
+## What it does
+
+- Infinite clipboard history (text / images / files / rich text / links), survives reboot
+- Instant full-text search (Chinese and English)
+- Pin frequently used entries; they are exempt from cleanup
+- Paste back into the original window without losing focus
+- Categories: all / text / images / links / files / pinned
+- Hover preview for long text and full-size images
+- Keyboard first: ↑↓ navigate, Enter paste, Del delete, Esc close
+- Stats: totals, categories, 7-day trend, top-pasted
+- Dark/light theme, Chinese/English UI, optional autostart, configurable hotkey
+
+## Privacy model
+
+- Everything is stored locally in %APPDATA%\com.clipvault.app\ (SQLite + PNG files)
+- Password-manager copies are never recorded (ExcludeClipboardContentFromMonitorProcessing / CanIncludeInClipboardHistory markers are honored)
+- User-defined sensitive keyword filter; oversized text (>256 KB) is stored as a local side file, never silently dropped
+- One-click pause of capture; one-click wipe of the full history
+- No network code exists in the binary; the website loads no external resources
+
+## Docs
+
+- User manual (shortcuts, data location, known issues): https://ardss.github.io/clipvault/#manual
+- Privacy boundary: https://ardss.github.io/clipvault/#privacy
+- Live in-browser demo: https://ardss.github.io/clipvault/#demo
+- Changelog: https://github.com/ardss/clipvault/blob/main/CHANGELOG.md

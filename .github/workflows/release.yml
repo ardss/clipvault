@@ -11,9 +11,36 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
+        cache: npm
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: cargo fmt --check
+        working-directory: src-tauri
+      - run: cargo clippy --all-targets -- -D warnings
+        working-directory: src-tauri
+      - run: cargo test
+        working-directory: src-tauri
       - run: npm ci
-      - run: npx tauri build --no-bundle
+      # full bundle: NSIS installer (+ the bare exe as a portable fallback)
+      - run: npx tauri build
+      - name: Collect artifacts + checksums
+        shell: pwsh
+        run: |
+          $out = "release-assets"
+          New-Item -ItemType Directory $out | Out-Null
+          Copy-Item "src-tauri/target/release/bundle/nsis/ClipVault_*_x64-setup.exe" $out
+          Copy-Item "src-tauri/target/release/app.exe" "$out/ClipVault-portable.exe"
+          Push-Location $out
+          Get-ChildItem * | ForEach-Object {
+            $h = (Get-FileHash $_ -Algorithm SHA256).Hash.ToLower()
+            "$h  $($_.Name)" | Add-Content SHA256SUMS.txt
+          }
+          Pop-Location
       - uses: softprops/action-gh-release@v2
         with:
-          files: src-tauri/target/release/app.exe
+          files: |
+            release-assets/*.exe
+            release-assets/SHA256SUMS.txt
+          draft: true
