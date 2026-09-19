@@ -7,7 +7,9 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { LogicalPosition, LogicalSize } from '@tauri-apps/api/dpi'
 
-const isZoomWin = getCurrentWindow().label === 'zoom'
+const isZoomWin =
+  getCurrentWindow().label === 'zoom' ||
+  new URLSearchParams(window.location.search).has('zoom')
 
 // surface JS errors to the backend log — a blank panel must never be a mystery
 window.addEventListener('error', (e) => {

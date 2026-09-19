@@ -90,7 +90,8 @@ pub(crate) fn create_zoom(app: tauri::AppHandle) -> Result<(), String> {
         cvlog!("[cv] create_zoom: window already exists");
         return Ok(());
     }
-    tauri::WebviewWindowBuilder::new(&app, "zoom", WebviewUrl::App("index.html".into()))
+    // the query param pins preview mode even if the label check ever fails
+    tauri::WebviewWindowBuilder::new(&app, "zoom", WebviewUrl::App("index.html?zoom=1".into()))
         .title("ClipVault")
         .inner_size(340.0, 460.0)
         .visible(false)
@@ -116,6 +117,12 @@ pub(crate) fn create_zoom(app: tauri::AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub(crate) fn register_zoom(app: tauri::AppHandle) {
     use std::sync::atomic::Ordering;
+    cvlog!(
+        "[cv] register_zoom from label={}",
+        app.get_webview_window("zoom")
+            .map(|w| w.label().to_string())
+            .unwrap_or_default()
+    );
     if let Some(z) = app.get_webview_window("zoom") {
         if let Ok(h) = z.hwnd() {
             crate::win::ZOOM_HWND.store(h.0 as isize, Ordering::SeqCst);
