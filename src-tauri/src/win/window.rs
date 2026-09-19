@@ -177,8 +177,19 @@ pub fn restore_foreground(target: isize) -> bool {
 pub fn spawn_zoom_watchdog(app: tauri::AppHandle<tauri::Wry>) {
     std::thread::spawn(move || {
         let mut misses = 0u32;
+        let mut ticks: u64 = 0;
         loop {
             std::thread::sleep(std::time::Duration::from_millis(150));
+            ticks += 1;
+            // daily WAL checkpoint keeps clips.db-wal from growing unbounded
+            // on always-on machines (SQLite only auto-checkpoints on writes)
+            if ticks % (8 * 60 * 60 * 7) == 0 {
+                if let Some(db) = app.try_state::<crate::db::Db>() {
+                    let conn = db.0.lock().unwrap_or_else(|p| p.into_inner());
+                    let _: Result<(), _> =
+                        conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()));
+                }
+            }
             // this tick doubles as the outside-click poller (one thread instead
             // of two): the hook only sets the flag, hiding from the hook thread
             // itself risks deadlock — here we are a plain worker thread.

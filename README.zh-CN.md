@@ -52,6 +52,10 @@ npx tauri dev               # 终端 2
 
 测试：`cd src-tauri && cargo test`（剪贴板往返 / DIB 解码 / DROPFILES 解析）
 
+## 测试与验收
+
+规范见 [docs/TESTING.md](docs/TESTING.md) 与 [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md)。（See docs/TESTING.md and docs/RELEASE_CHECKLIST.md.）
+
 ## 技术说明
 
 - 剪贴板写入兼容性：图片同时提供标准 CF_DIB（自底向上）与注册 "PNG" 格式，

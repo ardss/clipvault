@@ -42,6 +42,7 @@ fn setup_schema(conn: &Connection) -> Result<(), String> {
     conn.execute_batch(
         "PRAGMA journal_mode=WAL;
          PRAGMA synchronous=NORMAL;
+         PRAGMA journal_size_limit=4194304;
          CREATE TABLE IF NOT EXISTS clips(
            id INTEGER PRIMARY KEY AUTOINCREMENT,
            kind TEXT NOT NULL,

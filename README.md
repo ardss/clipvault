@@ -59,6 +59,12 @@ npx tauri dev               # terminal 2
 
 Tests: `cd src-tauri && cargo test` (clipboard round-trip / DIB decoding / DROPFILES parsing)
 
+## Testing & Acceptance
+
+See [docs/TESTING.md](docs/TESTING.md) and [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md). (测试与验收规范见 [docs/TESTING.md](docs/TESTING.md) 与 [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md)。)
+
+## Technical notes
+
 ## Technical notes
 
 - Clipboard write compatibility: images are offered both as standard CF_DIB
