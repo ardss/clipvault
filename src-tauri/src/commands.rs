@@ -101,14 +101,13 @@ pub(crate) fn create_zoom(app: tauri::AppHandle) -> Result<(), String> {
         .focused(false)
         .shadow(true)
         .build()
-        .map(|w| {
+        .inspect(|w| {
             cvlog!("[cv] create_zoom: window built");
-            w
         })
-        .map_err(|e| {
+        .inspect_err(|e| {
             cvlog!("[cv] create_zoom FAILED: {e}");
-            e.to_string()
-        })?;
+        })
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
