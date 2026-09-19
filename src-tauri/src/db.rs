@@ -20,7 +20,25 @@ pub struct Clip {
 pub fn init(app: &tauri::App) -> Result<(), String> {
     let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     std::fs::create_dir_all(dir.join("images")).map_err(|e| e.to_string())?;
-    let conn = Connection::open(dir.join("clips.db")).map_err(|e| e.to_string())?;
+    // a corrupt db must not brick the app: the whole setup (DDL probes a
+    // malformed image, quick_check catches subtler btree damage) runs through
+    // the quarantine-and-retry path
+    let setup = |conn: &Connection| -> Result<(), String> { setup_schema(conn) };
+    let conn = match open_db(&dir).and_then(|c| setup(&c).map(|_| c)) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("[cv] db init failed ({e}) — quarantining corrupt database");
+            quarantine_db(&dir)?;
+            let c = open_db(&dir).map_err(|e2| format!("db unusable even after recreate: {e2}"))?;
+            setup(&c).map_err(|e2| format!("fresh db failed setup: {e2}"))?;
+            c
+        }
+    };
+    app.manage(Db(Mutex::new(conn)));
+    Ok(())
+}
+
+fn setup_schema(conn: &Connection) -> Result<(), String> {
     conn.execute_batch(
         "PRAGMA journal_mode=WAL;
          PRAGMA synchronous=NORMAL;
@@ -69,7 +87,33 @@ pub fn init(app: &tauri::App) -> Result<(), String> {
          CREATE INDEX IF NOT EXISTS idx_clips_files ON clips(files) WHERE files IS NOT NULL;",
     )
     .map_err(|e| e.to_string())?;
-    app.manage(Db(Mutex::new(conn)));
+    // silent btree corruption passes DDL — verify before serving queries
+    let ok = conn
+        .query_row("PRAGMA quick_check", [], |r| r.get::<_, String>(0))
+        .unwrap_or_else(|_| "error".into());
+    if ok != "ok" {
+        return Err(format!("db failed quick_check: {ok}"));
+    }
+    Ok(())
+}
+
+fn open_db(dir: &std::path::Path) -> Result<Connection, String> {
+    Connection::open(dir.join("clips.db")).map_err(|e| e.to_string())
+}
+
+fn quarantine_db(dir: &std::path::Path) -> Result<(), String> {
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let db = dir.join("clips.db");
+    if db.exists() {
+        std::fs::rename(&db, dir.join(format!("clips.db.corrupt-{ts}")))
+            .map_err(|e| e.to_string())?;
+    }
+    for f in ["clips.db-wal", "clips.db-shm"] {
+        let _ = std::fs::remove_file(dir.join(f));
+    }
     Ok(())
 }
 
@@ -138,10 +182,18 @@ pub fn list(conn: &Connection, filter: &str, query: &str) -> Result<Vec<Clip>, S
     } else {
         stmt.query_map([&like], row_to_clip)
     }
-    .map_err(|e| e.to_string())?
-    .filter_map(|r| r.ok())
-    .collect();
-    Ok(rows)
+    .map_err(|e| e.to_string())?;
+    let mapped: Vec<Result<Clip, rusqlite::Error>> = rows.collect();
+    let out: Vec<Clip> = mapped
+        .iter()
+        .filter_map(|r| r.as_ref().ok().cloned())
+        .collect();
+    let dropped = mapped.len() - out.len();
+    if dropped > 0 {
+        // silent row drops are the symptom of btree corruption — surface it
+        cvlog!("[cv] list: {dropped} rows unreadable (possible db corruption)");
+    }
+    Ok(out)
 }
 
 pub fn upsert_text(conn: &Connection, content: &str) -> Result<Option<i64>, String> {
@@ -308,9 +360,17 @@ pub fn clear_all(conn: &Connection) -> Result<Vec<EvictedFiles>, String> {
         rows.collect::<Result<Vec<_>, _>>()
             .map_err(|e| e.to_string())?
     };
+    // "cleared means gone": zero deleted pages and truncate the WAL, or
+    // plaintext clipboard history survives on disk inside the -wal file
+    conn.pragma_update(None, "secure_delete", true)
+        .map_err(|e| e.to_string())?;
     tx.execute("DELETE FROM clips", [])
         .map_err(|e| e.to_string())?;
     tx.commit().map_err(|e| e.to_string())?;
+    // both pragmas return rows — execute/query them, not execute_batch
+    let _: Result<(), _> = conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()));
+    let _ = conn.execute("VACUUM", []);
+    let _ = conn.pragma_update(None, "secure_delete", false);
     Ok(victims)
 }
 

@@ -73,6 +73,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::clip_content,
+            commands::create_zoom,
             commands::register_zoom,
             commands::report_error,
             commands::heartbeat,

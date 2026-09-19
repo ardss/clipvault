@@ -57,7 +57,7 @@ npx tauri dev               # 终端 2
 - 剪贴板写入兼容性：图片同时提供标准 CF_DIB（自底向上）与注册 "PNG" 格式，
   Chromium 内核（Chrome/VS Code/Electron 应用）与 GDI 程序均正常读取；
   DIB 解码支持 BI_BITFIELDS 通道掩码（截图工具常用）
-- 粘贴按键由常驻注入器子进程发出（部分环境下进程内合成键会被系统吞掉）
+- 粘贴按键由按需拉起的注入器子进程发出（崩溃自愈；部分环境下进程内合成键会被系统吞掉）
 - WebView IPC 心跳看门狗：面板自动检测断流的 IPC 通道并重载（JS 每 5 秒检查，原生兜底 60 秒内）
 - 数据全部存于 `%APPDATA%\com.clipvault.app\`（SQLite WAL + PNG 文件），安全边界见 [SECURITY.md](SECURITY.md)
 

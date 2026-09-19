@@ -65,7 +65,7 @@ Tests: `cd src-tauri && cargo test` (clipboard round-trip / DIB decoding / DROPF
   (bottom-up) and the registered "PNG" format — Chromium-based apps
   (Chrome/VS Code/Electron) and GDI apps both read them correctly; DIB
   decoding supports BI_BITFIELDS channel masks (screenshot tools)
-- The paste keystroke is issued by a resident injector subprocess (in-process
+- The paste keystroke is issued by an on-demand injector subprocess (self-healing) (in-process
   synthetic keys are swallowed on some setups)
 - WebView IPC heartbeat watchdog: the panel detects a dead IPC channel and
   reloads itself (JS check every 5 s, native fallback within 60 s)

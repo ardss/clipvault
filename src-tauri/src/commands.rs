@@ -63,6 +63,29 @@ pub(crate) fn hide_panel(app: &AppHandle) {
     win::PASTE_TARGET.store(0, Ordering::SeqCst);
 }
 
+/// Lazily creates the zoom preview window with a fixed, code-defined config —
+/// the frontend never needs the broader create-webview-window permission.
+#[tauri::command]
+pub(crate) fn create_zoom(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri::WebviewUrl;
+    if app.get_webview_window("zoom").is_some() {
+        return Ok(());
+    }
+    tauri::WebviewWindowBuilder::new(&app, "zoom", WebviewUrl::App("index.html".into()))
+        .title("ClipVault")
+        .inner_size(340.0, 460.0)
+        .visible(false)
+        .decorations(false)
+        .resizable(false)
+        .skip_taskbar(true)
+        .always_on_top(true)
+        .focused(false)
+        .shadow(true)
+        .build()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// The zoom window is created lazily by the frontend; it registers its HWND
 /// here on mount so the native watchdog can find it.
 #[tauri::command]

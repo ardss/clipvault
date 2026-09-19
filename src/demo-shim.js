@@ -58,7 +58,7 @@ import seedShot2 from './assets/seed-shot2.png'
     else if (f === 'file') rows = rows.filter(r => r.kind === 'file')
     else if (f === 'pinned') rows = rows.filter(r => r.pinned)
     if (q) rows = rows.filter(r => (r.preview || '').toLowerCase().includes(q) || (r.content || '').toLowerCase().includes(q))
-    return rows.slice().sort((a, b) => b.created_at - a.created_at)
+    return rows.slice().sort((a, b) => (b.pinned - a.pinned) || (b.created_at - a.created_at))
   }
   function stats() {
     const rows = load()
@@ -119,7 +119,12 @@ import seedShot2 from './assets/seed-shot2.png'
   fire('clips-changed', null)
   return resolve(rows.length)
 }
-          case 'get_settings': return resolve(loadSettings() || { history_limit: 1000, panel_height: 540, autostart: false, hotkey: 'Alt+V', sensitive_keywords: [], paused: false })
+          case 'create_zoom': return resolve(null)
+          case 'get_settings': {
+          const st = loadSettings() || { history_limit: 1000, panel_height: 540, autostart: false, hotkey: 'Alt+V', sensitive_keywords: [], paused: false }
+          st.paused = false // pause is session-only, as in the real app
+          return resolve(st)
+        }
           case 'set_settings': try { localStorage.setItem(LS_SET, JSON.stringify(args.settings)) } catch (e) {} return resolve(null)
           case 'toggle_pin': {
             const rows = load(); const r = rows.find(x => x.id === args.id)

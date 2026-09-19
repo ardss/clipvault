@@ -142,7 +142,15 @@ pub fn clipboard_marked_sensitive() -> bool {
 /// a standard bottom-up 32bpp CF_DIB **plus** the registered "PNG" format
 /// (Chromium-based readers prefer "PNG"; GDI-era readers take CF_DIB).
 pub fn write_clipboard_png(png: &[u8]) -> bool {
-    let img = match image::load_from_memory(png) {
+    // same bomb limits as the capture path — stored bytes can still expand
+    // to gigabytes of RGBA without a dimension cap
+    let mut reader = image::ImageReader::new(std::io::Cursor::new(png));
+    reader.set_format(image::ImageFormat::Png);
+    let mut lim = image::Limits::default();
+    lim.max_image_width = Some(10000);
+    lim.max_image_height = Some(10000);
+    reader.limits(lim);
+    let img = match reader.decode() {
         Ok(i) => i.to_rgba8(),
         Err(_) => return false,
     };

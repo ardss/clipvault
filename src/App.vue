@@ -192,7 +192,12 @@ function thumb(c) {
 const broken = ref(new Set())
 function markBroken(c) { const s = new Set(broken.value); s.add(c.id); broken.value = s }
 function thumbFallback(c, e) {
-  if (c.image_path) { e.target.src = convertFileSrc(c.image_path) } else { markBroken(c) }
+  // second failure (the full-size image is also gone) => genuinely broken;
+  // retrying forever would spam console errors on every frame
+  if (c.image_path && !e.target.dataset.fbk) {
+    e.target.dataset.fbk = '1'
+    e.target.src = convertFileSrc(c.image_path)
+  } else { markBroken(c) }
 }
 
 async function onPin(c, e) { e.stopPropagation(); await invoke('toggle_pin', { id: c.id }); refresh() }
@@ -251,17 +256,11 @@ async function openZoom(c, e) {
     await zw.show()
   }
 }
-// the zoom window costs ~50MB sitting hidden all day — create it on first
-// hover instead of at boot
+// the zoom window costs ~50MB sitting hidden all day — created on first
+// hover via a Rust command (fixed config; no webview-creation permission
+// granted to the webview)
 async function ensureZoomWin() {
-  let zw = await WebviewWindow.getByLabel('zoom')
-  if (zw) return zw
-  zw = new WebviewWindow('zoom', {
-    url: 'index.html', title: 'ClipVault', width: 340, height: 460,
-    visible: false, decorations: false, resizable: false, skipTaskbar: true,
-    alwaysOnTop: true, focus: false, shadow: true,
-  })
-  await new Promise((res) => { zw.once('tauri://created', res); zw.once('tauri://error', res) })
+  await invoke('create_zoom').catch(() => {})
   return WebviewWindow.getByLabel('zoom')
 }
 function rowEnter(c, e) { openZoom(c, e) }
