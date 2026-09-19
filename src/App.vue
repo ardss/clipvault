@@ -2,6 +2,7 @@
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { invoke, convertFileSrc } from '@tauri-apps/api/core'
 import { listen, emit } from '@tauri-apps/api/event'
+import { emitTo } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { LogicalPosition, LogicalSize } from '@tauri-apps/api/dpi'
@@ -249,12 +250,26 @@ async function openZoom(c, e) {
   if (c.kind !== 'image' && (c.content || '').length >= 4096) {
     try { payload.text = ((await invoke('clip_content', { id: c.id })) || '').trim() } catch {}
   }
-  await emit('zoom-data', payload)
-  let zw = await ensureZoomWin()
-  if (zw) {
-    await zw.setPosition(new LogicalPosition(x, top))
-    await zw.show()
-  }
+  // create the window FIRST and wait for its ready handshake — a payload
+  // emitted before the zoom webview mounts is lost (blank first hover)
+  const zw = await ensureZoomWin()
+  if (!zw) return
+  await waitZoomReady()
+  await emitTo('zoom', 'zoom-data', payload)
+  await zw.setPosition(new LogicalPosition(x, top))
+  await zw.show()
+}
+let zoomReady = false
+function waitZoomReady() {
+  if (zoomReady) return Promise.resolve()
+  return new Promise((res) => {
+    const to = setTimeout(res, 2000) // never block hover on a dead window
+    listen('zoom-ready', () => {
+      clearTimeout(to)
+      zoomReady = true
+      res()
+    }).then((un) => unlisteners.push(un))
+  })
 }
 // the zoom window costs ~50MB sitting hidden all day — created on first
 // hover via a Rust command (fixed config; no webview-creation permission
@@ -323,6 +338,7 @@ onMounted(async () => {
     // this window is the hover preview: render payload, report hover state
     invoke('register_zoom').catch(console.error)
     unlisteners.push(await listen('zoom-data', (e) => { zoomData.value = e.payload }))
+    await emit('zoom-ready')
     const onEnter = () => emit('zoom-hover')
     const onLeave = () => emit('zoom-leave')
     window.addEventListener('mouseenter', onEnter)

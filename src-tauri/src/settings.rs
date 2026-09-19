@@ -131,22 +131,32 @@ fn register_hotkey_now(app: &AppHandle, hotkey: &str, fallback: &str) -> Result<
 /// main thread and wait briefly for its result so a conflict surfaces as Err.
 fn register_hotkey_via_main(app: &AppHandle, hotkey: &str, fallback: &str) -> Result<(), String> {
     let (tx, rx) = std::sync::mpsc::channel();
+    let applied = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let app2 = app.clone();
     let hk = hotkey.to_string();
     let fb = fallback.to_string();
+    let flag = applied.clone();
     app.run_on_main_thread(move || {
-        let _ = tx.send(register_hotkey_now(&app2, &hk, &fb));
+        let r = register_hotkey_now(&app2, &hk, &fb);
+        if r.is_ok() {
+            flag.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+        let _ = tx.send(r);
     })
     .map_err(|e| e.to_string())?;
     match rx.recv_timeout(Duration::from_secs(2)) {
         Ok(r) => r,
         Err(_) => {
-            // the queued closure still fires later; re-register the previous
-            // combo after it so runtime hotkey matches the stored settings
+            // the queued closure may still fire later — the compensation only
+            // re-registers the previous combo if the original never applied,
+            // otherwise it would clobber the user's newly-set hotkey
             let app3 = app.clone();
             let fb = fallback.to_string();
+            let flag = applied;
             let _ = app.run_on_main_thread(move || {
-                let _ = register_hotkey_now(&app3, &fb, &fb);
+                if !flag.load(std::sync::atomic::Ordering::SeqCst) {
+                    let _ = register_hotkey_now(&app3, &fb, &fb);
+                }
             });
             Err("hotkey apply timed out".into())
         }
