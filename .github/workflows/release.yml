@@ -48,7 +48,7 @@ jobs:
             "$h  $($_.Name)"
           }
           Set-Content -Path "$out/SHA256SUMS.txt" -Value $lines
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: |
             release-assets/*.exe
