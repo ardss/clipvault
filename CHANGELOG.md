@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Sensitive-content confirm poll reduced from 360 ms to 120 ms per capture; clear-history zeroes deleted pages (`secure_delete` + WAL checkpoint + VACUUM)
 - Release profile: codegen-units=1; landing-page images re-encoded (−2.1 MB)
 
+## [0.1.1] - 2026-09-18
 ## [Unreleased]
 
 ### Added
