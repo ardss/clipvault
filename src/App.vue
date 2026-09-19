@@ -239,9 +239,9 @@ async function openZoom(c, e) {
   const payload = c.kind === 'image'
     ? { type: 'image', src: thumb(c) }
     : { type: 'text', text: (c.content || c.preview || '').trim() }
-  // the list query truncates content at 20000 chars — fetch the full body
-  // for very long texts before showing the zoom window
-  if (c.kind !== 'image' && (c.content || '').length >= 20000) {
+  // the list query truncates content at 4096 chars — fetch the full body
+  // for long texts before showing the zoom window
+  if (c.kind !== 'image' && (c.content || '').length >= 4096) {
     try { payload.text = ((await invoke('clip_content', { id: c.id })) || '').trim() } catch {}
   }
   await emit('zoom-data', payload)
