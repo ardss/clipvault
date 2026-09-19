@@ -28,6 +28,7 @@ const i18n = {
     setLimit:'历史上限', setLimitHint:'超出后自动清理最旧记录（置顶除外）', setAuto:'开机自动启动', setAutoHint:'登录 Windows 后在后台静默运行', shortcut:'呼出快捷键', about:'关于', save:'保存', saved:'设置已保存', setHotkey:'呼出热键', setHotkeyHint:'如 Alt+V / Ctrl+Alt+V，保存后生效；若被占用会提示失败', setSensitive:'敏感词过滤', setSensitivePh:'token, password, 密码', setSensitiveHint:'复制的内容包含这些词时不记录（逗号分隔）', setPause:'暂停采集', setPauseHint:'开启后照常复制粘贴，但不记录任何新内容', clearAll:'清空历史', clearAllHint:'删除所有条目及其图片与附件文件，不可恢复', clearBtn:'清空全部历史', clearConfirm:'再点一次确认！', cleared:'已清空 {n} 条', pausedTag:'采集中断·已暂停',
     focusLost:'已复制到剪贴板，但无法聚焦原窗口，请手动 Ctrl+V', pasteFail:'粘贴失败，内容仍在剪贴板', dayToday:'今天', dayYesterday:'昨天', dayEarlier:'更早',
     demoPasted:'在线演示：实际使用时这里会粘贴到原窗口',
+    pin:'置顶', del:'删除', clear:'清除',
   },
   en: {
     all:'All', text:'Text', image:'Image', pinned:'Pinned', link:'Links', file:'Files',
@@ -37,13 +38,16 @@ const i18n = {
     statTotal:'Total', statText:'Text', statImage:'Images', statLink:'Links', statFile:'Files',
     statPinned:'Pinned', statToday:'Today', statPastes:'Pastes', statDaily:'Last 7 days',
     statTop:'Top 5 pasted', times:'×',
-    setLimit:'History limit', setLimitHint:'Oldest unpinned items are cleaned up beyond the limit', setAuto:'Launch at startup', setAutoHint:'Runs quietly in the background after sign-in', shortcut:'Summon shortcut', about:'About', save:'Save', saved:'Settings saved', setHotkey:'Summon hotkey', setHotkeyHint:'e.g. Alt+V / Ctrl+Alt+V — applied on save; warns if taken', setSensitive:'Sensitive filter', setSensitivePh:'token, password, secret', setSensitiveHint:'Copies containing these words are never recorded (comma separated)', setPause:'Pause capture', setPauseHint:'Copy and paste as usual — nothing new is recorded while on', clearAll:'Clear history', clearAllHint:'Deletes every entry with its images and side files. Cannot be undone.', clearBtn:'Clear all history', clearConfirm:'Click again to confirm!', cleared:'Cleared {n} entries', pausedTag:'Capture paused',
+    setLimit:'History limit', setLimitHint:'Oldest unpinned items are cleaned up beyond the limit', setAuto:'Launch at startup', setAutoHint:'Runs quietly in the background after sign-in', shortcut:'Summon shortcut', about:'About', save:'Save', saved:'Settings saved', setHotkey:'Summon hotkey', setHotkeyHint:'e.g. Alt+V / Ctrl+Alt+V — applied on save; warns if taken', setSensitive:'Sensitive filter', setSensitivePh:'token, password, secret', setSensitiveHint:'Copies containing these words are never recorded (comma separated)', setPause:'Pause capture', setPauseHint:'Copy and paste as usual — nothing new is recorded while on', clearAll:'Clear history', clearAllHint:'Deletes every entry with its images and side files. Cannot be undone.', clearBtn:'Clear all history', clearConfirm:'Click again to confirm!', cleared:'Cleared {n} item(s)', pausedTag:'Capture paused',
     focusLost:'Copied to clipboard, but could not focus the previous window — press Ctrl+V manually', pasteFail:'Paste failed, content stays on clipboard', dayToday:'Today', dayYesterday:'Yesterday', dayEarlier:'Earlier',
     demoPasted:'Demo: the real app pastes this into your previous window',
+    pin:'Pin', del:'Delete', clear:'Clear',
   },
 }
 const lang = ref(localStorage.getItem('cv-lang') || 'zh')
 const t = (k) => i18n[lang.value][k] ?? k
+watch(lang, l => { document.documentElement.lang = l === 'zh' ? 'zh-CN' : 'en' })
+document.documentElement.lang = lang.value === 'zh' ? 'zh-CN' : 'en'
 function toggleLang() {
   lang.value = lang.value === 'zh' ? 'en' : 'zh'
   localStorage.setItem('cv-lang', lang.value)
@@ -389,7 +393,7 @@ onBeforeUnmount(() => {
 
     <div class="search-row" v-if="!showStats && !showSettings">
       <input class="search" v-model="query" @input="onSearch" :placeholder="t('search')" />
-      <button v-if="query" class="search-clear" @click="clearSearch" title="Clear">
+      <button v-if="query" class="search-clear" @click="clearSearch" :title="t('clear')" :aria-label="t('clear')">
         <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
       </button>
     </div>
@@ -401,14 +405,16 @@ onBeforeUnmount(() => {
       </button>
     </div>
 
-    <div class="list" role="listbox" :aria-label="t('all')" v-if="!showStats && !showSettings">
+    <div class="list" role="listbox" :aria-label="t('all')"
+         :aria-activedescendant="selected >= 0 && flat[selected] ? 'clip-' + flat[selected].id : undefined"
+         v-if="!showStats && !showSettings">
       <div v-if="clips.length === 0" class="empty">
         <div class="empty-title">{{ t('empty') }}</div>
         <div class="empty-hint">{{ settings && settings.paused ? t('setPauseHint') : t('emptyHint') }}</div>
       </div>
       <template v-for="g in grouped" :key="g.label">
-        <div class="group-label">{{ g.label }}</div>
-        <div v-for="c in g.items" :key="c.id" class="row" role="option"
+        <div class="group-label" role="presentation">{{ g.label }}</div>
+        <div v-for="c in g.items" :key="c.id" class="row" role="option" :id="'clip-' + c.id"
              :aria-selected="flat[selected] && flat[selected].id === c.id"
              :aria-label="c.kind === 'image' ? c.preview : undefined"
              :class="{ sel: flat[selected] && flat[selected].id === c.id, open: false }"
@@ -421,10 +427,10 @@ onBeforeUnmount(() => {
           <span v-if="c.kind === 'html'" class="preview">{{ (c.preview || '').replace(/^\s+/, '') }}</span>
           <span v-else-if="c.kind !== 'file'" class="preview">{{ (c.preview || '').replace(/^\s+/, '') }}</span>
           <span class="spacer"></span>
-          <button class="icon-btn pin" :class="{ on: c.pinned }" @click="onPin(c, $event)" title="Pin">
+          <button class="icon-btn pin" :class="{ on: c.pinned }" @click="onPin(c, $event)" :title="t('pin')">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>
           </button>
-          <button class="icon-btn del" @click="onDelete(c, $event)" title="Delete">
+          <button class="icon-btn del" @click="onDelete(c, $event)" :title="t('del')">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
           </button>
         </div>
@@ -518,12 +524,12 @@ onBeforeUnmount(() => {
     </div>
 
     <div v-if="!isZoomWin" class="health">{{ health }}</div>
-    <div v-if="!isZoomWin" class="grip" @mousedown.prevent="startResize($event)" title="">
+    <div v-if="!isZoomWin" class="grip" @mousedown.prevent="startResize($event)" aria-hidden="true">
       <span></span>
     </div>
 
     <transition name="fade">
-      <div v-if="toast" class="toast">{{ toast }}</div>
+      <div v-if="toast" class="toast" role="status">{{ toast }}</div>
     </transition>
   </div>
 </template>
@@ -614,7 +620,7 @@ onBeforeUnmount(() => {
 .zoomwin pre { margin: 0; white-space: pre-wrap; word-break: break-all; font-family: inherit; font-size: 12px; line-height: 1.5; user-select: text; cursor: text; }
 .pop-enter-active, .pop-leave-active { transition: opacity .12s ease; }
 .pop-enter-from, .pop-leave-to { opacity: 0; }
-.health { font-size: 9px; color: var(--fg-dim); text-align: right; padding: 0 10px 2px; opacity: .7; flex-shrink: 0; }
+.health { font-size: 9px; color: var(--fg-dim); text-align: right; padding: 0 10px 2px; opacity: .85; flex-shrink: 0; }
 .grip { height: 14px; display: flex; align-items: center; justify-content: center; cursor: ns-resize; flex-shrink: 0; }
 .grip span { width: 36px; height: 4px; border-radius: 2px; background: var(--border); }
 .grip:hover span { background: var(--fg-dim); }

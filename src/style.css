@@ -37,3 +37,6 @@ body {
   color: var(--fg);
 }
 ::selection { background: var(--hl); color: #1b1d22; }
+
+/* keep placeholder text at AA contrast in both themes */
+::placeholder { color: var(--fg-dim); opacity: 1; }

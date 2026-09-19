@@ -170,6 +170,11 @@ pub fn upsert_text(conn: &Connection, content: &str) -> Result<Option<i64>, Stri
 pub type EvictedFiles = (Option<String>, Option<String>);
 
 pub fn enforce_limit(conn: &Connection, max: i64) -> Result<Vec<EvictedFiles>, String> {
+    // a hand-edited limit of 0/negative must not become "delete everything"
+    // (SQLite treats LIMIT -1 as unbounded and clamps negative OFFSET to 0)
+    if max <= 0 {
+        return Ok(Vec::new());
+    }
     // find evicted rows (oldest unpinned beyond the limit), collect their image
     // and oversized-text side files, then delete the rows — one transaction so
     // a crash can't orphan files for rows that still exist (or vice versa)

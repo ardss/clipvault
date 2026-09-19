@@ -169,8 +169,13 @@ pub(crate) fn paste_clip(
                 && (html.is_empty() || win::write_clipboard_html(&html))
         }
         "text" if image_path.is_some() => {
-            // oversized text stored in a side file
+            // oversized text stored in a side file; an empty read means the
+            // row's file was deleted between listing and paste (e.g. by
+            // clear_history) — fail loudly instead of pasting nothing
             let full = std::fs::read_to_string(image_path.unwrap_or_default()).unwrap_or_default();
+            if full.is_empty() {
+                return Err("clip content file is gone".into());
+            }
             win::write_clipboard_text(&full)
         }
         _ => win::write_clipboard_text(&content.unwrap_or_default()),

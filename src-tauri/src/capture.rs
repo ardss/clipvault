@@ -17,10 +17,18 @@ pub(crate) fn save_image(app: &AppHandle, png: &[u8]) -> Option<(String, u32, u3
     if !path.exists() {
         std::fs::write(&path, &bytes).ok()?;
     }
-    // 256px thumbnail: the panel lists load this instead of the full image
+    // 256px thumbnail: the panel lists load this instead of the full image.
+    // Decode limits guard against decompression bombs — clipboard bytes can
+    // come from any app, and an unconstrained decode can allocate gigabytes
     let thumb = dir.join("images").join(format!("{hash:016x}_t.png"));
     if !thumb.exists() {
-        if let Ok(img) = image::load_from_memory(&bytes) {
+        let mut reader = image::ImageReader::new(std::io::Cursor::new(&bytes));
+        reader.set_format(image::ImageFormat::Png);
+        let mut lim = image::Limits::default();
+        lim.max_image_width = Some(10000);
+        lim.max_image_height = Some(10000);
+        reader.limits(lim);
+        if let Ok(img) = reader.decode() {
             let t = img.thumbnail(256, 256);
             let _ = t.save(&thumb);
         }
@@ -60,7 +68,8 @@ pub(crate) fn handle_clipboard_change(app: &AppHandle) {
         (s.history_limit, s.sensitive_keywords.clone())
     };
     let st = app.state::<db::Db>();
-    let conn = st.0.lock().unwrap_or_else(|p| p.into_inner());
+    let lock = || st.0.lock().unwrap_or_else(|p| p.into_inner());
+    let mut conn = lock();
     let mut captured = false;
     // priority: files > rich text/plain > image
     if let Some(files) = win::read_clipboard_files() {
@@ -70,8 +79,23 @@ pub(crate) fn handle_clipboard_change(app: &AppHandle) {
         }
     } else {
         cvlog!("[cv] files: none, trying text/html/dib");
-        let text = win::read_clipboard_text();
-        let html = win::read_clipboard_html();
+        let mut text = win::read_clipboard_text();
+        let html_raw = win::read_clipboard_html();
+        // the HTML Format blob is stored inline in the DB — cap it like text;
+        // an oversized rich copy degrades to its plain text (which still gets
+        // the oversized side-file path and the keyword filter)
+        let html = if html_raw.as_ref().is_some_and(|h| h.len() <= 256 * 1024) {
+            html_raw.clone()
+        } else {
+            None
+        };
+        if text.is_none() {
+            if let Some(h) = &html_raw {
+                if html.is_none() {
+                    text = Some(html_to_plain(h));
+                }
+            }
+        }
         if let (Some(t), Some(h)) = (&text, &html) {
             if db::upsert_html(&conn, t, h).is_ok() {
                 captured = true;
@@ -122,20 +146,32 @@ pub(crate) fn handle_clipboard_change(app: &AppHandle) {
             // Snipping Tool / browsers / Office write exact "PNG" bytes —
             // no DIB decoding involved
             cvlog!("[cv] png format read: {} bytes", png.len());
-            if png.len() <= 20 * 1024 * 1024 {
-                if let Some((path, w, h)) = save_image(app, &png) {
-                    if db::upsert_image(&conn, &path, w, h).is_ok() {
-                        captured = true;
-                    }
+            // decode OUTSIDE the db lock — a large screenshot can take
+            // seconds to decode and must not stall list/paste queries
+            let saved = if png.len() <= 20 * 1024 * 1024 {
+                drop(conn);
+                save_image(app, &png)
+            } else {
+                None
+            };
+            conn = lock();
+            if let Some((path, w, h)) = saved {
+                if db::upsert_image(&conn, &path, w, h).is_ok() {
+                    captured = true;
                 }
             }
         } else if let Some(dib) = win::read_clipboard_dib_vec() {
             win::log_clipboard_formats();
-            if dib.len() <= 20 * 1024 * 1024 {
-                if let Some((path, w, h)) = save_image(app, &dib) {
-                    if db::upsert_image(&conn, &path, w, h).is_ok() {
-                        captured = true;
-                    }
+            let saved = if dib.len() <= 20 * 1024 * 1024 {
+                drop(conn);
+                save_image(app, &dib)
+            } else {
+                None
+            };
+            conn = lock();
+            if let Some((path, w, h)) = saved {
+                if db::upsert_image(&conn, &path, w, h).is_ok() {
+                    captured = true;
                 }
             }
         }

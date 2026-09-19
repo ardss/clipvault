@@ -156,9 +156,12 @@ fn spawn_images_reconcile(h: tauri::AppHandle) {
             for e in entries.flatten() {
                 let p = e.path();
                 let s = p.to_string_lossy().into_owned();
+                // thumbnails are named {hash}_t.png and never stored in
+                // image_path — match them via the row's full-image path,
+                // otherwise every startup would delete every thumbnail
                 let referenced: bool = conn
                     .query_row(
-                        "SELECT count(*) FROM clips WHERE image_path=?1 OR image_path LIKE '%' || ?2",
+                        "SELECT count(*) FROM clips WHERE image_path=?1 OR replace(image_path, '.png', '_t.png')=?1",
                         rusqlite::params![s, s],
                         |r| r.get::<_, i64>(0),
                     )
