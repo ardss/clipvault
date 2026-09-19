@@ -35,12 +35,20 @@ pub fn injector_loop() -> ! {
                 // wait until the target really has focus back (its activation
                 // is asynchronous); injecting too early loses the keystroke
                 let want = read_inject_target();
+                cvlog!("[cv-inj] signaled, want=({},{})", want.0, want.1);
+                let mut matched = false;
                 for _ in 0..80 {
                     let (fg, focus) = foreground_focus();
                     if want.0 != 0 && fg == want.0 && (focus == want.1 || want.1 == 0) {
+                        cvlog!("[cv-inj] focus matched fg={fg} focus={focus}");
+                        matched = true;
                         break;
                     }
                     std::thread::sleep(std::time::Duration::from_millis(25));
+                }
+                if !matched {
+                    let (fg, focus) = foreground_focus();
+                    cvlog!("[cv-inj] focus NEVER matched; injecting at fg={fg} focus={focus}");
                 }
                 keybd_event(VK_CONTROL.0 as u8, 0, KEYBD_EVENT_FLAGS(0), 0);
                 keybd_event(VK_V.0 as u8, 0, KEYBD_EVENT_FLAGS(0), 0);

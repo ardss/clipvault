@@ -83,8 +83,12 @@ pub(crate) fn hide_panel(app: &AppHandle) {
 /// Lazily creates the zoom preview window with a fixed, code-defined config —
 /// the frontend never needs the broader create-webview-window permission.
 #[tauri::command]
-pub(crate) fn create_zoom(app: tauri::AppHandle) -> Result<(), String> {
+pub(crate) async fn create_zoom(app: tauri::AppHandle) -> Result<(), String> {
     use tauri::WebviewUrl;
+    // async => runs on the IPC runtime thread. This MUST NOT run on the main
+    // thread: build() blocks until the webview initializer event fires, and
+    // on the main thread that event can never be pumped — a deadlock that
+    // froze every later paste_clip invocation (the P0 "paste is dead" bug).
     cvlog!("[cv] create_zoom invoked");
     if app.get_webview_window("zoom").is_some() {
         cvlog!("[cv] create_zoom: window already exists");
