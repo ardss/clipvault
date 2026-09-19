@@ -101,7 +101,7 @@ pub(crate) fn create_zoom(app: tauri::AppHandle) -> Result<(), String> {
         .focused(false)
         .shadow(true)
         .build()
-        .inspect(|w| {
+        .inspect(|_w| {
             cvlog!("[cv] create_zoom: window built");
         })
         .inspect_err(|e| {
