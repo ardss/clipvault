@@ -1480,6 +1480,141 @@ mod stress_tests {
 }
 
 #[cfg(test)]
+mod gap_tests {
+    // gap-closing tests for today's fixes
+    use super::*;
+    use std::path::PathBuf;
+
+    fn unique_dir(tag: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!(
+            "cvgap_{}_{}_{}",
+            tag,
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    /// (b) monotonic now(): even when the wall clock stalls or jumps backward,
+    /// successive calls must be strictly increasing.
+    #[test]
+    fn now_is_strictly_monotonic_over_1000_calls() {
+        let mut prev = now();
+        for _ in 0..1000 {
+            let t = now();
+            assert!(t > prev, "now() went backward: {t} <= {prev}");
+            prev = t;
+        }
+    }
+
+    /// (quarantine path from today's fix) a corrupt clips.db must be renamed
+    /// to clips.db.corrupt-* and the -wal/-shm sidecars removed, so the app
+    /// recovers with a fresh db instead of bricking.
+    #[test]
+    fn corrupt_db_is_quarantined_and_recovery_succeeds() {
+        let dir = unique_dir("quarantine");
+        let db = dir.join("clips.db");
+        // valid db first, then corrupt it beyond quick_check
+        {
+            let conn = Connection::open(&db).unwrap();
+            conn.execute_batch(
+                "PRAGMA journal_mode=WAL; CREATE TABLE clips(id INTEGER PRIMARY KEY, x TEXT);",
+            )
+            .unwrap();
+            let _: i64 = conn
+                .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| r.get(0))
+                .unwrap();
+        }
+        let good = std::fs::read(&db).unwrap();
+        let mut bytes = good.clone();
+        for k in 0..16 {
+            let pos = (k * 6151 + 4096) % bytes.len();
+            bytes[pos] ^= 0xA5;
+        }
+        std::fs::write(&db, &bytes).unwrap();
+        std::fs::write(dir.join("clips.db-wal"), vec![0u8; 4096]).unwrap();
+        std::fs::write(dir.join("clips.db-shm"), vec![0u8; 32768]).unwrap();
+
+        // mirror db::init's open -> setup -> quarantine-and-retry flow
+        let opened = open_db(&dir).and_then(|c| setup_schema(&c).map(|_| c));
+        assert!(opened.is_err(), "corrupt db must fail setup_schema");
+        quarantine_db(&dir).unwrap();
+        let conn = open_db(&dir).unwrap();
+        setup_schema(&conn).unwrap();
+
+        // the corrupt file is preserved under clips.db.corrupt-*
+        let quarantined: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.starts_with("clips.db.corrupt-"))
+            .collect();
+        assert_eq!(
+            quarantined.len(),
+            1,
+            "exactly one quarantine file: {quarantined:?}"
+        );
+        assert_eq!(
+            std::fs::read(dir.join(&quarantined[0])).unwrap(),
+            bytes,
+            "quarantined file keeps the corrupt bytes"
+        );
+        // sidecars removed by quarantine; the fresh open recreates the -wal
+        let n: i64 = conn
+            .query_row("SELECT count(*) FROM clips", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 0, "fresh db starts empty");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// (c) clear_all secure-delete: after clear_all + checkpoint, the deleted
+    /// plaintext must no longer appear in the raw on-disk db bytes.
+    #[test]
+    fn clear_all_leaves_no_plaintext_in_db_file() {
+        let dir = unique_dir("securedelete");
+        let conn = Connection::open(dir.join("clips.db")).unwrap();
+        conn.execute_batch("PRAGMA journal_mode=WAL;").unwrap();
+        setup_schema(&conn).unwrap();
+        // distinctive, unlikely-to-occur-by-chance payload
+        let secret = format!("SECRETPAYLOAD-{}-do-not-leave-on-disk", std::process::id());
+        for i in 0..50 {
+            upsert_text(&conn, &format!("{secret}-{i}")).unwrap();
+        }
+        upsert_text(&conn, &format!("{secret}-tail")).unwrap();
+        let victims = clear_all(&conn).unwrap();
+        assert_eq!(victims.len(), 51);
+        assert_eq!(
+            conn.query_row("SELECT count(*) FROM clips", [], |r| r.get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+        // clear_all already ran wal_checkpoint(TRUNCATE) + VACUUM; drop the
+        // connection and check every byte on disk
+        drop(conn);
+        let mut found = Vec::new();
+        for entry in std::fs::read_dir(&dir).unwrap().flatten() {
+            let p = entry.path();
+            let bytes = match std::fs::read(&p) {
+                Ok(b) => b,
+                Err(_) => continue,
+            };
+            if bytes.windows(secret.len()).any(|w| w == secret.as_bytes()) {
+                found.push(p.file_name().unwrap().to_string_lossy().into_owned());
+            }
+        }
+        assert!(
+            found.is_empty(),
+            "plaintext survives on disk in: {found:?} — secure_delete/wal truncate failed"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
 mod dedup_tests {
     use super::*;
 

@@ -33,6 +33,50 @@ pub fn cvlog_write(args: std::fmt::Arguments) {
     }
 }
 
+#[cfg(test)]
+mod cvlog_tests {
+    use super::*;
+
+    /// (d) cv.log cap: once the log exceeds 256 KB, the next write must delete
+    /// it and start fresh (cap logic lives inline in cvlog_write — this drives
+    /// it through its real entry point via the APPDATA override).
+    #[test]
+    fn cvlog_caps_at_256kb_and_stays_parseable() {
+        let dir = std::env::temp_dir().join(format!(
+            "cvlog_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join("com.clipvault.app")).unwrap();
+        std::env::set_var("APPDATA", &dir); // process-global: no other test reads APPDATA
+
+        // pre-fill past the cap
+        let log = dir.join("com.clipvault.app").join("cv.log");
+        std::fs::write(&log, vec![b'x'; 300 * 1024]).unwrap();
+
+        cvlog_write(format_args!("after-cap marker {}", std::process::id()));
+
+        let len = std::fs::metadata(&log).unwrap().len();
+        assert!(
+            len <= 256 * 1024,
+            "cv.log exceeded cap after write: {len} bytes"
+        );
+        let txt = std::fs::read_to_string(&log).unwrap();
+        assert!(
+            txt.contains("after-cap marker"),
+            "fresh log must contain the new entry"
+        );
+        assert!(
+            !txt.contains('x'),
+            "old oversized content must be gone, not appended to"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
 mod capture;
 mod commands;
 mod db;
