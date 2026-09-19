@@ -114,6 +114,7 @@ fn register_hotkey_now(app: &AppHandle, hotkey: &str, fallback: &str) -> Result<
     }
     let _ = g.unregister_all();
     if g.register(parsed).is_ok() {
+        crate::cvlog_write(format_args!("[cv] hotkey registered: {hotkey}"));
         return Ok(());
     }
     let fb = fallback

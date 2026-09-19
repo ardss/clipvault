@@ -1,10 +1,36 @@
-/// Debug logging gated by CV_LOG=1 — release builds stay silent.
+/// Always-on diagnostic log: appended to cv.log in the app-data dir (capped
+/// at 256 KB). Both the main process and the resident injector write here —
+/// stderr is invisible for a GUI app, and this is the only way to see what a
+/// user's real session did after the fact.
 macro_rules! cvlog {
     ($($arg:tt)*) => {
-        if std::env::var("CV_LOG").is_ok() {
-            eprintln!($($arg)*);
-        }
+        crate::cvlog_write(format_args!($($arg)*))
     };
+}
+
+pub fn cvlog_write(args: std::fmt::Arguments) {
+    use std::io::Write;
+    let dir = std::env::var("APPDATA")
+        .map(|d| std::path::Path::new(&d).join("com.clipvault.app"))
+        .unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let path = dir.join("cv.log");
+    // cap: delete and start fresh rather than growing forever
+    if let Ok(meta) = std::fs::metadata(&path) {
+        if meta.len() > 256 * 1024 {
+            let _ = std::fs::remove_file(&path);
+        }
+    }
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    {
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+        let _ = writeln!(f, "{ts} {}", args);
+    }
 }
 
 mod capture;
