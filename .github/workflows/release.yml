@@ -36,8 +36,11 @@ jobs:
         run: |
           $out = "release-assets"
           New-Item -ItemType Directory $out | Out-Null
-          Copy-Item "src-tauri/target/release/bundle/nsis/ClipVault_*_x64-setup.exe" $out
-          Copy-Item "src-tauri/target/release/app.exe" "$out/ClipVault_${{ github.ref_name }}-portable.exe"
+          # exact version from tauri.conf — a wildcard would also copy stale
+          # installers left in the bundle dir by older local builds
+          $ver = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
+          Copy-Item "src-tauri/target/release/bundle/nsis/ClipVault_${ver}_x64-setup.exe" $out
+          Copy-Item "src-tauri/target/release/app.exe" "$out/ClipVault_${ver}-portable.exe"
           # hash only the exes, then write the file once — never let the
           # checksum file hash itself
           $lines = Get-ChildItem "$out/*.exe" | ForEach-Object {
