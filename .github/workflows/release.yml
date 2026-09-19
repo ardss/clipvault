@@ -15,7 +15,7 @@ jobs:
           $tag = "${{ github.ref_name }}".TrimStart('v')
           $conf = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
           if ($tag -ne $conf) { throw "tag v$tag != tauri.conf.json version $conf — bump versions before tagging" }
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with: { node-version: 22 }
         cache: npm
       - uses: dtolnay/rust-toolchain@stable
