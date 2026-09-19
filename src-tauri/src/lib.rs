@@ -84,7 +84,7 @@ pub fn run() {
                 if win::OUTSIDE_CLICK.swap(false, Ordering::SeqCst) {
                     hide_panel(&h2);
                 }
-                std::thread::sleep(Duration::from_millis(60));
+                std::thread::sleep(Duration::from_millis(120));
             });
             build_tray(app)?;
             // hotkey itself is registered by apply_settings above (uses the
@@ -92,6 +92,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::clip_content,
             commands::report_error,
             commands::heartbeat,
             commands::list_clips,

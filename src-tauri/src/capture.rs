@@ -54,12 +54,16 @@ pub(crate) fn handle_clipboard_change(app: &AppHandle) {
     // password managers flag sensitive copies — never record those. Writers
     // put formats on the clipboard in steps, so re-check a few times before
     // trusting a "not flagged" result
-    for _ in 0..3 {
-        if win::clipboard_marked_sensitive() {
-            eprintln!("[cv] sensitive clipboard content skipped");
-            return;
-        }
-        std::thread::sleep(Duration::from_millis(120));
+    if win::clipboard_marked_sensitive() {
+        eprintln!("[cv] sensitive clipboard content skipped");
+        return;
+    }
+    // writers put formats on the clipboard in steps — confirm once after a
+    // short settle instead of polling three times (was 360ms on every copy)
+    std::thread::sleep(Duration::from_millis(120));
+    if win::clipboard_marked_sensitive() {
+        eprintln!("[cv] sensitive clipboard content skipped");
+        return;
     }
     // snapshot settings once so limit and keywords come from the same state
     let settings_state = app.state::<SettingsState>();
@@ -206,7 +210,7 @@ fn html_to_plain(html: &[u8]) -> String {
     for ch in body.chars() {
         match ch {
             '<' => in_tag = true,
-            '>' => in_tag = false,
+            '>' if in_tag => in_tag = false,
             c if !in_tag => out.push(c),
             _ => {}
         }
@@ -218,4 +222,83 @@ fn html_to_plain(html: &[u8]) -> String {
         .replace("&nbsp;", " ")
         .trim()
         .to_string()
+}
+
+#[cfg(test)]
+mod logic_tests {
+    use super::*;
+
+    // ---- sanitize_text ----
+
+    #[test]
+    fn sanitize_keeps_newline_cr_tab_strips_other_controls() {
+        let input = "line1\nline2\r\ntab\there\u{0}\u{1}\u{7}\u{8}end";
+        let out = sanitize_text(input);
+        assert_eq!(out, "line1\nline2\r\ntab\thereend");
+    }
+
+    #[test]
+    fn sanitize_keeps_printable_unicode_and_emoji() {
+        let input = "héllo wörld 日本語 \u{1F600}";
+        assert_eq!(sanitize_text(input), input);
+    }
+
+    #[test]
+    fn sanitize_empty_and_control_only() {
+        assert_eq!(sanitize_text(""), "");
+        assert_eq!(sanitize_text("\u{0}\u{1}\u{2}"), "");
+        assert_eq!(sanitize_text("\u{0}x\u{1}"), "x");
+    }
+
+    // ---- html_to_plain ----
+
+    #[test]
+    fn html_strips_tags_keeps_text() {
+        let html = b"<html><body><p>Hello <b>world</b></p></body></html>";
+        assert_eq!(html_to_plain(html), "Hello world");
+    }
+
+    #[test]
+    fn html_uses_start_end_fragment_markers() {
+        let html = b"version:0.9\r\nstarthtml:0000100\r\nendhtml:0000230\r\n<!--StartFragment--><i>frag</i><!--EndFragment-->trailing";
+        assert_eq!(html_to_plain(html), "frag");
+    }
+
+    #[test]
+    fn html_decodes_entities() {
+        let html = b"<p>a &amp; b &lt;tag&gt; &quot;q&quot;&nbsp;sp</p>";
+        assert_eq!(html_to_plain(html), "a & b <tag> \"q\" sp");
+    }
+
+    #[test]
+    fn html_without_fragment_or_malformed() {
+        assert_eq!(html_to_plain(b"<p>plain</p>"), "plain");
+        // EndFragment before StartFragment -> whole string is body
+        let s = String::from_utf8_lossy(b"<!--EndFragment-->x<!--StartFragment-->y");
+        let body = match (s.find("<!--StartFragment-->"), s.find("<!--EndFragment-->")) {
+            (Some(a), Some(b)) if a < b => &s[a + 20..b],
+            _ => &s[..],
+        };
+        assert!(body.contains('y'));
+    }
+
+    #[test]
+    fn html_nested_and_unclosed_tags() {
+        assert_eq!(html_to_plain(b"<div><div>deep</div></div>"), "deep");
+        assert_eq!(html_to_plain(b"<p>unclosed"), "unclosed");
+        assert_eq!(html_to_plain(b"<"), ""); // lone '<' starts a tag that never ends
+                                             // literal '>' outside a tag is kept (was dropped before the fix)
+        assert_eq!(html_to_plain(b">"), ">");
+        assert_eq!(html_to_plain(b"a > b"), "a > b");
+    }
+
+    #[test]
+    fn html_trims_whitespace() {
+        assert_eq!(html_to_plain(b"  <p>  spaced  </p>  "), "spaced");
+    }
+
+    #[test]
+    fn html_invalid_utf8_is_lossy() {
+        assert_eq!(html_to_plain(&[0x68, 0x69, 0xFF]), "hi\u{FFFD}");
+    }
 }

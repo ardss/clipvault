@@ -64,6 +64,11 @@ pub(crate) fn hide_panel(app: &AppHandle) {
 }
 
 #[tauri::command]
+pub(crate) fn clip_content(state: tauri::State<crate::db::Db>, id: i64) -> Result<String, String> {
+    db::get_content(&state.0.lock().unwrap_or_else(|p| p.into_inner()), id)
+}
+
+#[tauri::command]
 pub(crate) fn report_error(app: AppHandle, msg: String) {
     eprintln!("[cv-js-error] {msg}");
     let line = format!("{:?} {msg}\n", std::time::SystemTime::now());
