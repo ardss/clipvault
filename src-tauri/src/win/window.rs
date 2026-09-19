@@ -73,7 +73,7 @@ pub fn point_in_panel(x: i32, y: i32) -> bool {
     }
     // the zoom preview window belongs to the panel UI
     let zh = ZOOM_HWND.load(Ordering::SeqCst);
-    if zh != 0 {
+    if zh != 0 && unsafe { IsWindowVisible(HWND(zh as _)) }.as_bool() {
         unsafe {
             let mut r2 = RECT::default();
             if GetWindowRect(HWND(zh as _), &mut r2).is_ok() {
@@ -175,39 +175,41 @@ pub fn restore_foreground(target: isize) -> bool {
 /// Hides the zoom preview when the real cursor has left BOTH the panel and
 /// the preview window for ~450ms. Position-based, so no event-order races.
 pub fn spawn_zoom_watchdog(app: tauri::AppHandle<tauri::Wry>) {
-    std::thread::spawn(move || loop {
-        std::thread::sleep(std::time::Duration::from_millis(150));
-        // this tick doubles as the outside-click poller (one thread instead
-        // of two): the hook only sets the flag, hiding from the hook thread
-        // itself risks deadlock — here we are a plain worker thread
-        if OUTSIDE_CLICK.swap(false, Ordering::SeqCst) {
-            crate::commands::hide_panel(&app);
-        }
-        let zh = ZOOM_HWND.load(Ordering::SeqCst);
-        if zh == 0 {
-            continue;
-        }
-        let visible = unsafe { IsWindowVisible(HWND(zh as _)) }.as_bool();
-        if !visible {
-            continue;
-        }
-        let (x, y) = get_cursor_pos();
-        if point_in_panel(x, y) {
-            continue; // cursor still over panel or preview — keep it open
-        }
-        // one miss isn't enough (cursor may be travelling toward the preview)
-        std::thread::sleep(std::time::Duration::from_millis(150));
-        let (x2, y2) = get_cursor_pos();
-        if point_in_panel(x2, y2) {
-            continue;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(150));
-        let (x3, y3) = get_cursor_pos();
-        if point_in_panel(x3, y3) {
-            continue;
-        }
-        if let Some(z) = app.get_webview_window("zoom") {
-            let _ = z.hide();
+    std::thread::spawn(move || {
+        let mut misses = 0u32;
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(150));
+            // this tick doubles as the outside-click poller (one thread instead
+            // of two): the hook only sets the flag, hiding from the hook thread
+            // itself risks deadlock — here we are a plain worker thread.
+            // Checked EVERY iteration: blocking sleeps must not delay the hide.
+            if OUTSIDE_CLICK.swap(false, Ordering::SeqCst) {
+                crate::commands::hide_panel(&app);
+            }
+            let zh = ZOOM_HWND.load(Ordering::SeqCst);
+            if zh == 0 {
+                misses = 0;
+                continue;
+            }
+            let visible = unsafe { IsWindowVisible(HWND(zh as _)) }.as_bool();
+            if !visible {
+                misses = 0;
+                continue;
+            }
+            let (x, y) = get_cursor_pos();
+            if point_in_panel(x, y) {
+                misses = 0; // cursor still over panel or preview — keep it open
+                continue;
+            }
+            // one miss isn't enough (cursor may be travelling toward the
+            // preview): 3 consecutive ticks (~450ms) without re-entering
+            misses += 1;
+            if misses >= 3 {
+                misses = 0;
+                if let Some(z) = app.get_webview_window("zoom") {
+                    let _ = z.hide();
+                }
+            }
         }
     });
 }
