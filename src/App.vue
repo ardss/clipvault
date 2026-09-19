@@ -250,26 +250,15 @@ async function openZoom(c, e) {
   if (c.kind !== 'image' && (c.content || '').length >= 4096) {
     try { payload.text = ((await invoke('clip_content', { id: c.id })) || '').trim() } catch {}
   }
-  // create the window FIRST and wait for its ready handshake — a payload
-  // emitted before the zoom webview mounts is lost (blank first hover)
+  // the payload goes through localStorage (panel and zoom share one origin)
+  // BEFORE the window exists — an event emitted before the zoom webview
+  // mounts is lost, storage is not (blank-first-hover bug)
+  localStorage.setItem('cv-zoom-data', JSON.stringify(payload))
   const zw = await ensureZoomWin()
   if (!zw) return
-  await waitZoomReady()
-  await emitTo('zoom', 'zoom-data', payload)
+  await emitTo('zoom', 'zoom-data', payload).catch(() => {})
   await zw.setPosition(new LogicalPosition(x, top))
   await zw.show()
-}
-let zoomReady = false
-function waitZoomReady() {
-  if (zoomReady) return Promise.resolve()
-  return new Promise((res) => {
-    const to = setTimeout(res, 2000) // never block hover on a dead window
-    listen('zoom-ready', () => {
-      clearTimeout(to)
-      zoomReady = true
-      res()
-    }).then((un) => unlisteners.push(un))
-  })
 }
 // the zoom window costs ~50MB sitting hidden all day — created on first
 // hover via a Rust command (fixed config; no webview-creation permission
@@ -337,8 +326,9 @@ onMounted(async () => {
   if (isZoomWin) {
     // this window is the hover preview: render payload, report hover state
     invoke('register_zoom').catch(console.error)
+    const stored = localStorage.getItem('cv-zoom-data')
+    if (stored) { try { zoomData.value = JSON.parse(stored) } catch {} }
     unlisteners.push(await listen('zoom-data', (e) => { zoomData.value = e.payload }))
-    await emit('zoom-ready')
     const onEnter = () => emit('zoom-hover')
     const onLeave = () => emit('zoom-leave')
     window.addEventListener('mouseenter', onEnter)

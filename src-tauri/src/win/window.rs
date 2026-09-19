@@ -34,16 +34,39 @@ pub fn log_send_time() {
 }
 
 pub fn update_panel_rect(hwnd: isize) {
+    PANEL_HWND.store(hwnd, Ordering::SeqCst);
+}
+
+/// OS-truth window rect (Tauri's own position bookkeeping can diverge from
+/// what the OS actually applied after DPI rescaling).
+pub fn get_window_rect(hwnd: isize) -> Option<(i32, i32, i32, i32)> {
     unsafe {
         let mut r = RECT::default();
         if GetWindowRect(HWND(hwnd as _), &mut r).is_ok() {
-            *PANEL_RECT.lock().unwrap_or_else(|p| p.into_inner()) =
-                (r.left, r.top, r.right, r.bottom);
+            return Some((r.left, r.top, r.right, r.bottom));
         }
     }
+    None
 }
 
 pub fn point_in_panel(x: i32, y: i32) -> bool {
+    // read the panel's CURRENT rect at click time — a rect cached at show
+    // time goes stale (async repositioning, DPI rescale) and then every
+    // click counts as "outside", instantly hiding the panel
+    let hwnd = PANEL_HWND.load(Ordering::SeqCst);
+    if hwnd != 0 {
+        unsafe {
+            let mut r = RECT::default();
+            if GetWindowRect(HWND(hwnd as _), &mut r).is_ok()
+                && x >= r.left
+                && x <= r.right
+                && y >= r.top
+                && y <= r.bottom
+            {
+                return true;
+            }
+        }
+    }
     let (l, t, r, b) = *PANEL_RECT.lock().unwrap_or_else(|p| p.into_inner());
     if x >= l && x <= r && y >= t && y <= b {
         return true;

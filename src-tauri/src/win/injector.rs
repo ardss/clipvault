@@ -143,10 +143,20 @@ pub fn request_paste_keystroke(target: isize, focus: isize) -> bool {
         if let Ok(exe) = std::env::current_exe() {
             use std::os::windows::process::CommandExt;
             const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-            let _ = std::process::Command::new(exe)
+            // stdio MUST be null: a GUI process launched from Explorer has
+            // no valid std handles, and inheriting them makes spawn() fail
+            // with ERROR_INVALID_HANDLE — silently killing every paste
+            let r = std::process::Command::new(exe)
                 .arg("--injector")
                 .creation_flags(CREATE_NO_WINDOW)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
                 .spawn();
+            if let Err(e) = r {
+                eprintln!("[cv] injector spawn failed: {e}");
+                let _ = std::fs::write(inject_file().with_extension("spawn.err"), format!("{e}"));
+            }
         }
         for _ in 0..20 {
             if let Some(h) = open() {

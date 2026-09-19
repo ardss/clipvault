@@ -46,6 +46,23 @@ pub(crate) fn show_panel(app: &AppHandle) {
         let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
         let _ = w.show();
         let _ = w.set_focus();
+        // verify against the OS — Tauri's position bookkeeping can diverge
+        // from what the OS applied after DPI rescaling (observed: physical
+        // (637,0) requested, window landing at (510,0) on a 1.25x monitor,
+        // while outer_position still reported the requested coords). Correct
+        // once through the logical coordinate path if the OS disagrees.
+        if let Some(hwnd) = w.hwnd().ok().map(|h| h.0 as isize) {
+            if let Some((l, t, _, _)) = win::get_window_rect(hwnd) {
+                if (l - x).abs() > 4 || (t - y).abs() > 4 {
+                    let sf = w.scale_factor().unwrap_or(1.25);
+                    let _ =
+                        w.set_position(tauri::LogicalPosition::new(x as f64 / sf, y as f64 / sf));
+                    if let Some((l2, t2, _, _)) = win::get_window_rect(hwnd) {
+                        cvlog!("[cv] panel position corrected: os=({l},{t}) -> ({l2},{t2}) target=({x},{y})");
+                    }
+                }
+            }
+        }
         win::update_panel_rect(w.hwnd().map(|h| h.0 as isize).unwrap_or(0));
         win::PANEL_VISIBLE.store(true, Ordering::SeqCst);
         let _ = w.emit("panel-shown", ());
@@ -68,7 +85,9 @@ pub(crate) fn hide_panel(app: &AppHandle) {
 #[tauri::command]
 pub(crate) fn create_zoom(app: tauri::AppHandle) -> Result<(), String> {
     use tauri::WebviewUrl;
+    cvlog!("[cv] create_zoom invoked");
     if app.get_webview_window("zoom").is_some() {
+        cvlog!("[cv] create_zoom: window already exists");
         return Ok(());
     }
     tauri::WebviewWindowBuilder::new(&app, "zoom", WebviewUrl::App("index.html".into()))
@@ -82,7 +101,14 @@ pub(crate) fn create_zoom(app: tauri::AppHandle) -> Result<(), String> {
         .focused(false)
         .shadow(true)
         .build()
-        .map_err(|e| e.to_string())?;
+        .map(|w| {
+            cvlog!("[cv] create_zoom: window built");
+            w
+        })
+        .map_err(|e| {
+            cvlog!("[cv] create_zoom FAILED: {e}");
+            e.to_string()
+        })?;
     Ok(())
 }
 
