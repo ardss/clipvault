@@ -25,7 +25,10 @@ pub fn injector_loop() -> ! {
         if created.is_err() {
             std::process::exit(0);
         }
-        let event = created.unwrap();
+        let Ok(event) = created else {
+            eprintln!("[cv] injector: CreateEventW failed — exiting (respawned on demand)");
+            std::process::exit(1);
+        };
         let listener_class = wide("ClipVaultListener");
         loop {
             if WaitForSingleObject(event, 2000) == WAIT_OBJECT_0 {
@@ -108,7 +111,7 @@ pub fn request_paste_keystroke(target: isize, focus: isize) -> bool {
     // tell the injector what "ready" looks like
     let _ = std::fs::write(inject_file(), format!("{target} {focus}"));
     static CACHE: StdMutex<Option<isize>> = StdMutex::new(None);
-    let mut cache = CACHE.lock().unwrap();
+    let mut cache = CACHE.lock().unwrap_or_else(|p| p.into_inner());
     if let Some(h) = *cache {
         if h != 0 {
             let ok = unsafe { SetEvent(HANDLE(h as *mut core::ffi::c_void)) }.is_ok();

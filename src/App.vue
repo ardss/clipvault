@@ -245,11 +245,24 @@ async function openZoom(c, e) {
     try { payload.text = ((await invoke('clip_content', { id: c.id })) || '').trim() } catch {}
   }
   await emit('zoom-data', payload)
-  const zw = await WebviewWindow.getByLabel('zoom')
+  let zw = await ensureZoomWin()
   if (zw) {
     await zw.setPosition(new LogicalPosition(x, top))
     await zw.show()
   }
+}
+// the zoom window costs ~50MB sitting hidden all day — create it on first
+// hover instead of at boot
+async function ensureZoomWin() {
+  let zw = await WebviewWindow.getByLabel('zoom')
+  if (zw) return zw
+  zw = new WebviewWindow('zoom', {
+    url: 'index.html', title: 'ClipVault', width: 340, height: 460,
+    visible: false, decorations: false, resizable: false, skipTaskbar: true,
+    alwaysOnTop: true, focus: false, shadow: true,
+  })
+  await new Promise((res) => { zw.once('tauri://created', res); zw.once('tauri://error', res) })
+  return WebviewWindow.getByLabel('zoom')
 }
 function rowEnter(c, e) { openZoom(c, e) }
 function rowLeave() { scheduleHide() }
@@ -309,6 +322,7 @@ let zoomHoverCleanup = null
 onMounted(async () => {
   if (isZoomWin) {
     // this window is the hover preview: render payload, report hover state
+    invoke('register_zoom').catch(console.error)
     unlisteners.push(await listen('zoom-data', (e) => { zoomData.value = e.payload }))
     const onEnter = () => emit('zoom-hover')
     const onLeave = () => emit('zoom-leave')
@@ -331,7 +345,11 @@ onMounted(async () => {
     })
     unlisteners.push(unresize)
   }
-  unlisteners.push(await listen('clips-changed', refresh))
+  { // trailing debounce: terminal Ctrl+X bursts emit dozens of events/sec
+    let rt = null
+    const debounced = () => { clearTimeout(rt); rt = setTimeout(refresh, 120) }
+    unlisteners.push(await listen('clips-changed', debounced))
+  }
   unlisteners.push(await listen('panel-shown', () => {
     refresh()
     nextTick(() => document.querySelector('.search')?.focus())

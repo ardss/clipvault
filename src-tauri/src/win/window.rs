@@ -37,13 +37,14 @@ pub fn update_panel_rect(hwnd: isize) {
     unsafe {
         let mut r = RECT::default();
         if GetWindowRect(HWND(hwnd as _), &mut r).is_ok() {
-            *PANEL_RECT.lock().unwrap() = (r.left, r.top, r.right, r.bottom);
+            *PANEL_RECT.lock().unwrap_or_else(|p| p.into_inner()) =
+                (r.left, r.top, r.right, r.bottom);
         }
     }
 }
 
 pub fn point_in_panel(x: i32, y: i32) -> bool {
-    let (l, t, r, b) = *PANEL_RECT.lock().unwrap();
+    let (l, t, r, b) = *PANEL_RECT.lock().unwrap_or_else(|p| p.into_inner());
     if x >= l && x <= r && y >= t && y <= b {
         return true;
     }
@@ -153,6 +154,12 @@ pub fn restore_foreground(target: isize) -> bool {
 pub fn spawn_zoom_watchdog(app: tauri::AppHandle<tauri::Wry>) {
     std::thread::spawn(move || loop {
         std::thread::sleep(std::time::Duration::from_millis(150));
+        // this tick doubles as the outside-click poller (one thread instead
+        // of two): the hook only sets the flag, hiding from the hook thread
+        // itself risks deadlock — here we are a plain worker thread
+        if OUTSIDE_CLICK.swap(false, Ordering::SeqCst) {
+            crate::commands::hide_panel(&app);
+        }
         let zh = ZOOM_HWND.load(Ordering::SeqCst);
         if zh == 0 {
             continue;

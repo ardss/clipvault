@@ -63,6 +63,18 @@ pub(crate) fn hide_panel(app: &AppHandle) {
     win::PASTE_TARGET.store(0, Ordering::SeqCst);
 }
 
+/// The zoom window is created lazily by the frontend; it registers its HWND
+/// here on mount so the native watchdog can find it.
+#[tauri::command]
+pub(crate) fn register_zoom(app: tauri::AppHandle) {
+    use std::sync::atomic::Ordering;
+    if let Some(z) = app.get_webview_window("zoom") {
+        if let Ok(h) = z.hwnd() {
+            crate::win::ZOOM_HWND.store(h.0 as isize, Ordering::SeqCst);
+        }
+    }
+}
+
 #[tauri::command]
 pub(crate) fn clip_content(state: tauri::State<crate::db::Db>, id: i64) -> Result<String, String> {
     db::get_content(&state.0.lock().unwrap_or_else(|p| p.into_inner()), id)

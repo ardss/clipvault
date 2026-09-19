@@ -70,8 +70,13 @@ pub(crate) fn load_settings(app: &AppHandle) -> Settings {
 pub(crate) fn save_settings(app: &AppHandle, s: &Settings) {
     let dir = app.path().app_data_dir().unwrap_or_default();
     let _ = std::fs::create_dir_all(&dir);
-    if let Ok(json) = serde_json::to_string_pretty(s) {
-        let _ = std::fs::write(dir.join("settings.json"), json);
+    let Ok(json) = serde_json::to_string_pretty(s) else {
+        return;
+    };
+    // atomic write: a crash mid-save must not leave a torn settings file
+    let tmp = dir.join("settings.json.tmp");
+    if std::fs::write(&tmp, json).is_ok() {
+        let _ = std::fs::rename(&tmp, dir.join("settings.json"));
     }
 }
 
@@ -135,7 +140,16 @@ fn register_hotkey_via_main(app: &AppHandle, hotkey: &str, fallback: &str) -> Re
     .map_err(|e| e.to_string())?;
     match rx.recv_timeout(Duration::from_secs(2)) {
         Ok(r) => r,
-        Err(_) => Err("hotkey apply timed out".into()),
+        Err(_) => {
+            // the queued closure still fires later; re-register the previous
+            // combo after it so runtime hotkey matches the stored settings
+            let app3 = app.clone();
+            let fb = fallback.to_string();
+            let _ = app.run_on_main_thread(move || {
+                let _ = register_hotkey_now(&app3, &fb, &fb);
+            });
+            Err("hotkey apply timed out".into())
+        }
     }
 }
 
@@ -171,8 +185,13 @@ pub(crate) fn set_settings(
         let _ = w.set_size(tauri::LogicalSize::new(380.0, settings.panel_height));
     }
     win::set_autostart(settings.autostart);
+    // save while holding the state lock: the only other writers
+    // (save_panel_height) take the same lock, so whole-file writes can
+    // never interleave and clobber each other
+    let mut current = state.0.lock().unwrap_or_else(|p| p.into_inner());
     save_settings(&app, &settings);
-    *state.0.lock().unwrap_or_else(|p| p.into_inner()) = settings;
+    *current = settings;
+    drop(current);
     Ok(())
 }
 

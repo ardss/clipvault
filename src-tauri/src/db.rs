@@ -380,10 +380,27 @@ pub fn mark_used(conn: &Connection, id: i64) {
 }
 
 fn now() -> i64 {
-    std::time::SystemTime::now()
+    use std::sync::atomic::{AtomicI64, Ordering};
+    static LAST: AtomicI64 = AtomicI64::new(0);
+    // wall clock can jump backward (NTP correction, manual change); ordering
+    // and OFFSET-based pruning rely on created_at moving forward
+    let wall = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
+        .unwrap_or(0);
+    let mut t = wall;
+    loop {
+        let last = LAST.load(Ordering::SeqCst);
+        if t <= last {
+            t = last.saturating_add(1);
+        }
+        if LAST
+            .compare_exchange(last, t, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+        {
+            return t;
+        }
+    }
 }
 
 #[derive(Clone, serde::Serialize)]

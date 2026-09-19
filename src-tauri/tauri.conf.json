@@ -25,19 +25,6 @@
         "shadow": true,
         "minHeight": 360,
         "maxHeight": 900
-      },
-      {
-        "label": "zoom",
-        "title": "ClipVault",
-        "width": 340,
-        "height": 460,
-        "visible": false,
-        "decorations": false,
-        "resizable": false,
-        "skipTaskbar": true,
-        "alwaysOnTop": true,
-        "focus": false,
-        "shadow": true
       }
     ],
     "security": {

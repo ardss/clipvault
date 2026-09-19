@@ -19,7 +19,7 @@ use std::time::Duration;
 use tauri::Manager;
 
 use commands::{hide_panel, show_panel};
-use settings::{apply_settings, load_settings, save_settings, SettingsState};
+use settings::{apply_settings, load_settings, SettingsState};
 
 /// Last frontend heartbeat (ms epoch); a webview watchdog reloads the UI
 /// when the panel is visible but the JS loop has gone silent.
@@ -51,48 +51,29 @@ pub fn run() {
                 .build(),
         )
         .setup(|app| {
-            db::init(app)?;
+            // first paint order: hotkey + tray before anything heavy — the
+            // user's first Alt+V should not wait on db migrations
             let settings = load_settings(app.handle());
             apply_settings(app.handle(), &settings);
+            build_tray(app)?;
+            db::init(app)?;
             app.manage(SettingsState(Mutex::new(settings)));
             let handle = app.handle().clone();
             win::spawn_clipboard_listener(move || capture::handle_clipboard_change(&handle));
             win::install_mouse_hook();
             let h3 = app.handle().clone();
+            // this tick also consumes the outside-click flag (one worker
+            // thread instead of two)
             win::spawn_zoom_watchdog(h3);
             spawn_heartbeat_watchdog(app.handle().clone());
             spawn_images_reconcile(app.handle().clone());
-            spawn_height_poller(app.handle().clone());
-            if let Some(z) = app.get_webview_window("zoom") {
-                if let Ok(h) = z.hwnd() {
-                    // NOT no-activate: the preview must take focus on click so
-                    // native text selection + Ctrl+C works inside it
-                    win::ZOOM_HWND.store(h.0 as isize, Ordering::SeqCst);
-                }
-            }
-            // resident helper process that performs the paste keystroke
-            if let Ok(exe) = std::env::current_exe() {
-                use std::os::windows::process::CommandExt;
-                const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-                let _ = std::process::Command::new(exe)
-                    .arg("--injector")
-                    .creation_flags(CREATE_NO_WINDOW)
-                    .spawn();
-            }
-            let h2 = app.handle().clone();
-            std::thread::spawn(move || loop {
-                if win::OUTSIDE_CLICK.swap(false, Ordering::SeqCst) {
-                    hide_panel(&h2);
-                }
-                std::thread::sleep(Duration::from_millis(120));
-            });
-            build_tray(app)?;
-            // hotkey itself is registered by apply_settings above (uses the
-            // configured value; falls back to Alt+V)
+            // the paste injector is spawned on demand by request_paste_keystroke
+            // (and self-heals if it died) — no eager process at boot
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             commands::clip_content,
+            commands::register_zoom,
             commands::report_error,
             commands::heartbeat,
             commands::list_clips,
@@ -191,31 +172,6 @@ fn spawn_images_reconcile(h: tauri::AppHandle) {
         }
         if removed > 0 || dead > 0 {
             cvlog!("[cv] reconciled: removed {removed} orphan images, {dead} dead rows");
-        }
-    });
-}
-
-/// Persist user-dragged panel height: poll the real window size (event
-/// plumbing proved unreliable; polling cannot be missed).
-fn spawn_height_poller(h: tauri::AppHandle) {
-    std::thread::spawn(move || loop {
-        std::thread::sleep(Duration::from_millis(1200));
-        let Some(pw) = h.get_webview_window("panel") else {
-            continue;
-        };
-        let Ok(size) = pw.inner_size() else { continue };
-        let Ok(scale) = pw.scale_factor() else {
-            continue;
-        };
-        let logical = (size.height as f64 / scale).round();
-        if !(360.0..=900.0).contains(&logical) {
-            continue;
-        }
-        let st = h.state::<SettingsState>();
-        let mut s = st.0.lock().unwrap_or_else(|p| p.into_inner());
-        if (s.panel_height - logical).abs() > 1.0 {
-            s.panel_height = logical;
-            save_settings(&h, &s);
         }
     });
 }

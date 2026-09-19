@@ -71,16 +71,21 @@ pub(crate) fn handle_clipboard_change(app: &AppHandle) {
         let s = settings_state.0.lock().unwrap_or_else(|p| p.into_inner());
         (s.history_limit, s.sensitive_keywords.clone())
     };
+    // ---- snapshot the clipboard OUTSIDE the db lock ----
+    // a read can block for hundreds of ms (open retries, a 20MB memcpy) and
+    // must never freeze list/paste IPC; only the persistence below locks
+    enum Incoming {
+        Files(Vec<String>),
+        Html(String, Vec<u8>),
+        Text(String),
+        BigText(String, std::path::PathBuf),
+        Image(Vec<u8>),
+    }
     let st = app.state::<db::Db>();
     let lock = || st.0.lock().unwrap_or_else(|p| p.into_inner());
-    let mut conn = lock();
-    let mut captured = false;
-    // priority: files > rich text/plain > image
-    if let Some(files) = win::read_clipboard_files() {
+    let incoming: Option<Incoming> = if let Some(files) = win::read_clipboard_files() {
         cvlog!("[cv] files read: {}", files.len());
-        if db::upsert_file(&conn, &files).is_ok() {
-            captured = true;
-        }
+        Some(Incoming::Files(files))
     } else {
         cvlog!("[cv] files: none, trying text/html/dib");
         let mut text = win::read_clipboard_text();
@@ -101,15 +106,10 @@ pub(crate) fn handle_clipboard_change(app: &AppHandle) {
             }
         }
         if let (Some(t), Some(h)) = (&text, &html) {
-            if db::upsert_html(&conn, t, h).is_ok() {
-                captured = true;
-            }
+            Some(Incoming::Html(t.clone(), h.clone()))
         } else if let Some(h) = html {
             // some writers set "HTML Format" without CF_UNICODETEXT
-            let plain = html_to_plain(&h);
-            if db::upsert_html(&conn, &plain, &h).is_ok() {
-                captured = true;
-            }
+            Some(Incoming::Html(html_to_plain(&h), h))
         } else if let Some(t) = text {
             let clean = sanitize_text(&t);
             let lower = clean.to_lowercase();
@@ -120,10 +120,9 @@ pub(crate) fn handle_clipboard_change(app: &AppHandle) {
                 .any(|k| !k.trim().is_empty() && lower.contains(&k.trim().to_lowercase()))
             {
                 eprintln!("[cv] text matched sensitive keyword — skipped");
+                None
             } else if t.len() <= 256 * 1024 {
-                if db::upsert_text(&conn, &clean).is_ok() {
-                    captured = true;
-                }
+                Some(Incoming::Text(clean))
             } else {
                 // oversized: full text goes to a side file so nothing is lost —
                 // the DB row keeps only a short preview
@@ -137,6 +136,42 @@ pub(crate) fn handle_clipboard_change(app: &AppHandle) {
                 if std::fs::write(&path, &clean).is_err() {
                     return;
                 }
+                Some(Incoming::BigText(clean, path))
+            }
+        } else if let Some(png) = win::read_clipboard_png_raw() {
+            // Snipping Tool / browsers / Office write exact "PNG" bytes —
+            // no DIB decoding involved
+            cvlog!("[cv] png format read: {} bytes", png.len());
+            if png.len() <= 20 * 1024 * 1024 {
+                Some(Incoming::Image(png))
+            } else {
+                None
+            }
+        } else if let Some(dib) = win::read_clipboard_dib_vec() {
+            win::log_clipboard_formats();
+            if dib.len() <= 20 * 1024 * 1024 {
+                Some(Incoming::Image(dib))
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    };
+    let mut captured = false;
+    if let Some(inc) = incoming {
+        // image decode (thumbnail) also happens outside the lock
+        let saved = if let Incoming::Image(bytes) = &inc {
+            save_image(app, bytes)
+        } else {
+            None
+        };
+        let conn = lock();
+        match inc {
+            Incoming::Files(f) => captured = db::upsert_file(&conn, &f).is_ok(),
+            Incoming::Html(t, h) => captured = db::upsert_html(&conn, &t, &h).is_ok(),
+            Incoming::Text(clean) => captured = db::upsert_text(&conn, &clean).is_ok(),
+            Incoming::BigText(clean, path) => {
                 let short: String = clean.chars().take(2000).collect();
                 match db::upsert_text_file(&conn, &short, path.to_string_lossy().as_ref()) {
                     Ok(_) => {
@@ -146,41 +181,16 @@ pub(crate) fn handle_clipboard_change(app: &AppHandle) {
                     Err(e) => cvlog!("[cv] big text upsert ERR: {e}"),
                 }
             }
-        } else if let Some(png) = win::read_clipboard_png_raw() {
-            // Snipping Tool / browsers / Office write exact "PNG" bytes —
-            // no DIB decoding involved
-            cvlog!("[cv] png format read: {} bytes", png.len());
-            // decode OUTSIDE the db lock — a large screenshot can take
-            // seconds to decode and must not stall list/paste queries
-            let saved = if png.len() <= 20 * 1024 * 1024 {
-                drop(conn);
-                save_image(app, &png)
-            } else {
-                None
-            };
-            conn = lock();
-            if let Some((path, w, h)) = saved {
-                if db::upsert_image(&conn, &path, w, h).is_ok() {
-                    captured = true;
-                }
-            }
-        } else if let Some(dib) = win::read_clipboard_dib_vec() {
-            win::log_clipboard_formats();
-            let saved = if dib.len() <= 20 * 1024 * 1024 {
-                drop(conn);
-                save_image(app, &dib)
-            } else {
-                None
-            };
-            conn = lock();
-            if let Some((path, w, h)) = saved {
-                if db::upsert_image(&conn, &path, w, h).is_ok() {
-                    captured = true;
+            Incoming::Image(_) => {
+                if let Some((path, w, h)) = saved {
+                    captured = db::upsert_image(&conn, &path, w, h).is_ok();
                 }
             }
         }
+        drop(conn);
     }
     if captured {
+        let conn = lock();
         if let Ok(victims) = db::enforce_limit(&conn, limit) {
             // remove image files of evicted rows (thumbs + oversized-text side files too)
             for (img, txt) in victims {
