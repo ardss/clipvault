@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ClipVault — Windows 剪贴板历史管理器</title>
-<meta name="description" content="Windows 剪贴板历史管理器。安装包约 2.2MB，数据只存你电脑，没有账号，也不联网。">
+<meta name="description" content="Windows 剪贴板历史管理器。安装包约 2.3MB，数据只存你电脑，没有账号，也不联网。">
 <meta property="og:title" content="ClipVault — 你复制过的，都在。">
 <meta property="og:description" content="Windows 剪贴板历史管理器。安装包 2.2MB，纯本地，零网络。">
 <meta property="og:image" content="images/og.png">
@@ -261,7 +261,7 @@ code { font-family: 'Cascadia Code', Consolas, monospace; font-size: 12.5px;
 <body>
 
 <div class="titlebar">
-  <span class="glyph">CV</span><b>ClipVault</b><span class="ver" data-i18n="ver">v0.1.0 · Windows</span>
+  <span class="glyph">CV</span><b>ClipVault</b><span class="ver" data-i18n="ver">v0.1.1 · Windows</span>
   <span class="sp"></span>
   <nav>
     <a href="#how" data-i18n="n_how">上手</a>
@@ -282,11 +282,11 @@ code { font-family: 'Cascadia Code', Consolas, monospace; font-size: 12.5px;
   <div class="hero">
     <div>
       <h1 data-i18n-html="h1">你<span class="marked">复制</span>过的，<br>都在。</h1>
-      <p class="fact" data-i18n-html="fact">Windows 剪贴板历史管理器。装完 <b>2.2MB</b>，数据只存你电脑，<b>没有账号，也不联网</b>。</p>
+      <p class="fact" data-i18n-html="fact">Windows 剪贴板历史管理器。装完 <b>2.3MB</b>，数据只存你电脑，<b>没有账号，也不联网</b>。</p>
       <div class="btnrow">
         <a class="btn hl" href="https://github.com/ardss/clipvault/releases" data-i18n="dl">下载 Windows 版</a>
         <a class="btn" href="#demo" data-i18n="try_demo">先在网页里试试</a>
-        <span class="note" data-i18n="dl_note">Win 10/11 · 安装包约 2.2MB · 免费</span>
+        <span class="note" data-i18n="dl_note">Win 10/11 · 安装包约 2.3MB · 免费</span>
       </div>
     </div>
     <figure class="hero-art">
@@ -444,6 +444,13 @@ code { font-family: 'Cascadia Code', Consolas, monospace; font-size: 12.5px;
     <details>
       <summary data-i18n="m_log">变更日志</summary>
       <div class="inner">
+        <h3>v0.1.1</h3>
+        <ul>
+          <li data-i18n="ch11">修复：首次悬停预览偶发卡死导致粘贴失效的问题</li>
+          <li data-i18n="ch12">加固：损坏数据库自动隔离恢复；清空历史后文件内无明文残留</li>
+          <li data-i18n="ch13">体积：日志封顶 256KB，WAL 4MB 上限 + 定期检查点</li>
+          <li data-i18n="ch14">质量：30 项自动化测试与 10 万行深度压测全部通过</li>
+        </ul>
         <h3>v0.1.0</h3>
         <ul>
           <li data-i18n="ch1">首个公开版本：文本/图片/文件/富文本/链接的记录与去重</li>
@@ -468,12 +475,12 @@ code { font-family: 'Cascadia Code', Consolas, monospace; font-size: 12.5px;
 <script>
 const I18N = {
   zh: {
-    ver: 'v0.1.0 · Windows',
+    ver: 'v0.1.1 · Windows',
     n_how: '上手', n_feat: '功能', n_demo: '在线试用', n_priv: '隐私', n_man: '手册',
     h1: '你<span class="marked">复制</span>过的，<br>都在。',
     hero_cap: '// 刚刚复制 · 已去重',
-    fact: 'Windows 剪贴板历史管理器。装完 <b>2.2MB</b>，数据只存你电脑，<b>没有账号，也不联网</b>。',
-    dl: '下载 Windows 版', try_demo: '先在网页里试试', dl_note: 'Win 10/11 · 安装包约 2.2MB · 免费',
+    fact: 'Windows 剪贴板历史管理器。装完 <b>2.3MB</b>，数据只存你电脑，<b>没有账号，也不联网</b>。',
+    dl: '下载 Windows 版', try_demo: '先在网页里试试', dl_note: 'Win 10/11 · 安装包约 2.3MB · 免费',
     e_how: '// 上手', e_feat: '// 功能', e_demo: '// 在线试用', e_priv: '// 隐私', e_ki: '// 已知问题', e_man: '// 手册',
     s1: '照常复制，内容自动进历史',
     s2: '呼出面板，打几个字找到那条',
@@ -520,17 +527,21 @@ const I18N = {
     ch2: '搜索、置顶、分类、键盘导航、悬停预览、统计',
     ch3: '贴回原窗口、深浅色、中英文、托盘、可选开机自启',
     ch4: '密码管理器的敏感复制自动跳过；面板假死自动恢复',
+    ch11: '修复：首次悬停预览偶发卡死导致粘贴失效的问题',
+    ch12: '加固：损坏数据库自动隔离恢复；清空历史后文件内无明文残留',
+    ch13: '体积：日志封顶 256KB，WAL 4MB 上限 + 定期检查点',
+    ch14: '质量：30 项自动化测试与 10 万行深度压测全部通过',
     f_open: '开源 · 本地运行 · 不联网', f_gh: 'GitHub',
     sb1: '0 KB 已上传', sb2: '无网络连接', sb3: '1 个进程常驻 · 约 10 MB 内存',
     theme_dark: '深色', theme_light: '浅色',
   },
   en: {
-    ver: 'v0.1.0 · Windows',
+    ver: 'v0.1.1 · Windows',
     n_how: 'How', n_feat: 'Features', n_demo: 'Try it', n_priv: 'Privacy', n_man: 'Manual',
     h1: 'Everything you <span class="marked">copy</span>,<br>right here.',
     hero_cap: '// copied just now · deduped',
     fact: 'A Windows clipboard history manager. <b>2.2MB</b>, fully local. <b>No account, no cloud</b> — nothing leaves your machine.',
-    dl: 'Download for Windows', try_demo: 'Try it in your browser', dl_note: 'Win 10/11 · ~2.2MB installer · free',
+    dl: 'Download for Windows', try_demo: 'Try it in your browser', dl_note: 'Win 10/11 · ~2.3MB installer · free',
     e_how: '// how', e_feat: '// features', e_demo: '// live demo', e_priv: '// privacy', e_ki: '// known issues', e_man: '// manual',
     s1: 'Copy as usual — everything is saved automatically',
     s2: 'Press Alt+V, type a few letters to find it',
@@ -577,6 +588,10 @@ const I18N = {
     ch2: 'Search, pinning, categories, keyboard navigation, hover preview, stats',
     ch3: 'Paste-back, dark/light, zh/en, tray, optional autostart',
     ch4: 'Password-manager sensitive copies auto-skipped; panel self-healing',
+    ch11: 'Fixed: rare first-hover freeze that broke pasting',
+    ch12: 'Hardened: corrupt-DB quarantine recovery; full wipe leaves no plaintext on disk',
+    ch13: 'Size: log capped at 256KB, WAL 4MB cap with periodic checkpoints',
+    ch14: 'Quality: 30 automated tests and 100k-row stress runs all green',
     f_open: 'Open source · Runs locally · Zero network', f_gh: 'GitHub',
     sb1: '0 KB uploaded', sb2: 'no network connection', sb3: '1 resident process · ~10 MB in RAM',
     theme_dark: 'Dark', theme_light: 'Light',
