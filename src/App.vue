@@ -171,6 +171,9 @@ async function onClearAll() {
   clearTimeout(clearTimer)
   try {
     const n = await invoke('clear_history')
+    ++zoomRequestId
+    latestZoomPayload = null
+    hideZoomWin().catch(() => {})
     showToast(t('cleared').replace('{n}', String(n)))
     refresh()
   } catch (e) { console.error(e) }
@@ -215,6 +218,9 @@ async function onPin(c, e) { e.stopPropagation(); await invoke('toggle_pin', { i
 async function onDelete(c, e) {
   e.stopPropagation()
   await invoke('delete_clip', { id: c.id })
+  ++zoomRequestId
+  latestZoomPayload = null
+  hideZoomWin().catch(() => {})
   refresh()
 }
 async function onClick(c) {
@@ -230,12 +236,17 @@ async function onClick(c) {
 
 const zoom = ref(null)
 const zoomData = ref(null)
+// The hover payload is kept in memory only. Persisting clipboard text in
+// localStorage left a second, undeletable copy after clearing history.
+let latestZoomPayload = null
+let zoomRequestId = 0
 let hideTimer = null
 function cancelHide() { clearTimeout(hideTimer) }
 // closing the popup is owned by the Rust cursor watchdog; the frontend
 // never hides it on hover events (event-timing races caused false closes)
 function scheduleHide() {}
 async function openZoom(c, e) {
+  const requestId = ++zoomRequestId
   clearTimeout(hideTimer)
   // only when the one-line preview actually truncates (or it's an image thumb)
   if (c.kind !== 'image') {
@@ -260,13 +271,14 @@ async function openZoom(c, e) {
   if (c.kind !== 'image' && (c.content || '').length >= 4096) {
     try { payload.text = ((await invoke('clip_content', { id: c.id })) || '').trim() } catch {}
   }
-  // the payload goes through localStorage (panel and zoom share one origin)
-  // BEFORE the window exists — an event emitted before the zoom webview
-  // mounts is lost, storage is not (blank-first-hover bug)
-  localStorage.setItem('cv-zoom-data', JSON.stringify(payload))
+  if (requestId !== zoomRequestId) return // older async hover must not replace the newest
+  latestZoomPayload = payload
   const zw = await ensureZoomWin()
-  if (!zw) return
+  if (!zw || requestId !== zoomRequestId) return
+  // The first event may precede zoom's listener; zoom requests a replay
+  // once mounted. Neither path persists the clipboard content to disk.
   await emitTo('zoom', 'zoom-data', payload).catch(() => {})
+  if (requestId !== zoomRequestId) return
   await zw.setPosition(new LogicalPosition(x, top))
   await zw.show()
 }
@@ -333,12 +345,15 @@ function onKey(e) {
 let unlisteners = []
 let zoomHoverCleanup = null
 onMounted(async () => {
+  // Clean up sensitive previews persisted by older releases (main + zoom share origin).
+  localStorage.removeItem('cv-zoom-data')
   if (isZoomWin) {
     // this window is the hover preview: render payload, report hover state
     invoke('register_zoom').catch(console.error)
-    const stored = localStorage.getItem('cv-zoom-data')
-    if (stored) { try { zoomData.value = JSON.parse(stored) } catch {} }
     unlisteners.push(await listen('zoom-data', (e) => { zoomData.value = e.payload }))
+    // Ask the already-mounted main panel to replay the most recent hover.
+    // This avoids a persistent localStorage copy of potentially private text.
+    await emit('zoom-request').catch(() => {})
     const onEnter = () => emit('zoom-hover')
     const onLeave = () => emit('zoom-leave')
     window.addEventListener('mouseenter', onEnter)
@@ -349,6 +364,9 @@ onMounted(async () => {
     }
     return
   }
+  unlisteners.push(await listen('zoom-request', () => {
+    if (latestZoomPayload) emitTo('zoom', 'zoom-data', latestZoomPayload).catch(() => {})
+  }))
   { // persist panel height after edge/grip resize (debounced)
     let rt = null
     const unresize = await getCurrentWindow().listen('tauri://resize', ({ payload }) => {
@@ -559,7 +577,7 @@ onBeforeUnmount(() => {
                  spellcheck="false" :aria-label="t('setSensitive')" />
           <div class="set-hint">{{ t('setSensitiveHint') }}</div>
         </div>
-        <div class="about">{{ t('about') }} ClipVault v0.1.0 · MIT</div>
+        <div class="about">{{ t('about') }} ClipVault v0.1.2 · MIT</div>
       </div>
     </div>
 
