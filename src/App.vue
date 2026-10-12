@@ -23,6 +23,7 @@ const i18n = {
   zh: {
     all:'全部', text:'文本', image:'图片', pinned:'置顶', link:'链接', file:'文件',
     search:'搜索剪贴板…', empty:'暂无内容', emptyHint:'复制任意内容（文本/图片/文件）后自动出现在这里', expired:'图片已过期',
+    noMatch:'没有匹配的结果', noMatchHint:'试试更短的关键词，或按 Esc 清空搜索',
     copyHint:'点击条目粘贴 · ↑↓ 选择 · Enter 粘贴 · Del 删除', theme:'主题', lang:'语言',
     statsTitle:'统计', settingsTitle:'设置',
     statTotal:'总条目', statText:'文本', statImage:'图片', statLink:'链接', statFile:'文件',
@@ -36,6 +37,7 @@ const i18n = {
   en: {
     all:'All', text:'Text', image:'Image', pinned:'Pinned', link:'Links', file:'Files',
     search:'Search clipboard…', empty:'Nothing here yet', emptyHint:'Copy anything (text / image / files) and it shows up here', expired:'Expired',
+    noMatch:'No matching entries', noMatchHint:'Try a shorter keyword, or press Esc to clear the search',
     copyHint:'Click to paste · ↑↓ select · Enter paste · Del delete', theme:'Theme', lang:'Lang',
     statsTitle:'Stats', settingsTitle:'Settings',
     statTotal:'Total', statText:'Text', statImage:'Images', statLink:'Links', statFile:'Files',
@@ -94,12 +96,18 @@ function groupOf(c) {
   return t('dayEarlier')
 }
 const grouped = computed(() => {
+  // pinned rows sort first and can be older than today's rows; giving them
+  // their own section keeps the 今天/昨天 date groups from repeating
+  const pinLabel = t('pin')
   const out = []
   let cur = null
-  for (const c of clips.value) {
-    const g = groupOf(c)
-    if (!cur || cur.label !== g) { cur = { label: g, items: [] }; out.push(cur) }
+  const push = (label, c) => {
+    if (!cur || cur.label !== label) { cur = { label, items: [] }; out.push(cur) }
     cur.items.push(c)
+  }
+  for (const c of clips.value) {
+    if (c.pinned && filter.value !== 'pinned') push(pinLabel, c)
+    else push(groupOf(c), c)
   }
   return out
 })
@@ -439,8 +447,10 @@ onBeforeUnmount(() => {
          :aria-activedescendant="selected >= 0 && flat[selected] ? 'clip-' + flat[selected].id : undefined"
          v-if="!showStats && !showSettings">
       <div v-if="clips.length === 0" class="empty">
-        <div class="empty-title">{{ t('empty') }}</div>
-        <div class="empty-hint">{{ settings && settings.paused ? t('setPauseHint') : t('emptyHint') }}</div>
+      <div class="empty-title">{{ query.trim() ? t('noMatch') : t('empty') }}</div>
+      <div class="empty-hint" v-if="query.trim()">{{ t('noMatchHint') }}</div>
+      <div class="empty-hint" v-else-if="settings && settings.paused">{{ t('setPauseHint') }}</div>
+      <div class="empty-hint" v-else>{{ t('emptyHint') }}</div>
       </div>
       <template v-for="g in grouped" :key="g.label">
         <div class="group-label" role="presentation">{{ g.label }}</div>
