@@ -224,9 +224,6 @@ pub(crate) fn paste_clip(
     let (kind, content, image_path) = {
         let conn = state.0.lock().unwrap_or_else(|p| p.into_inner());
         let r = db::get_clip(&conn, id);
-        if r.is_ok() {
-            db::mark_used(&conn, id);
-        }
         r
     }?;
     let ok = match kind.as_str() {
@@ -287,6 +284,7 @@ pub(crate) fn paste_clip(
     if !win::request_paste_keystroke(target, focus) {
         return Err("paste keystroke could not be delivered (injector unavailable)".into());
     }
+    db::mark_used(&state.0.lock().unwrap_or_else(|p| p.into_inner()), id);
     cvlog!("[cv] paste: sent");
     Ok(())
 }

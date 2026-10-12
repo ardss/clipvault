@@ -16,6 +16,27 @@ fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
+// A paste is allowed only when the original foreground window is active.
+// Child focus may be unknown (0), but the top-level target must never be 0.
+fn paste_target_matches(want: (isize, isize), actual: (isize, isize)) -> bool {
+    want.0 != 0 && actual.0 == want.0 && (want.1 == 0 || actual.1 == want.1)
+}
+
+#[cfg(test)]
+mod focus_guard_tests {
+    use super::paste_target_matches;
+
+    #[test]
+    fn only_original_window_can_receive_paste() {
+        assert!(paste_target_matches((101, 201), (101, 201)));
+        assert!(paste_target_matches((101, 0), (101, 999)));
+        assert!(!paste_target_matches((101, 201), (999, 201)));
+        assert!(!paste_target_matches((101, 201), (101, 999)));
+        assert!(!paste_target_matches((0, 0), (999, 0)));
+        assert!(!paste_target_matches((101, 201), (0, 0)));
+    }
+}
+
 /// Runs in a helper process (`app.exe --injector`): waits on the named event
 /// and performs the paste keystroke. Exits when the main app is gone.
 pub fn injector_loop() -> ! {
@@ -39,7 +60,7 @@ pub fn injector_loop() -> ! {
                 let mut matched = false;
                 for _ in 0..80 {
                     let (fg, focus) = foreground_focus();
-                    if want.0 != 0 && fg == want.0 && (focus == want.1 || want.1 == 0) {
+                    if paste_target_matches(want, (fg, focus)) {
                         cvlog!("[cv-inj] focus matched fg={fg} focus={focus}");
                         matched = true;
                         break;
@@ -48,7 +69,8 @@ pub fn injector_loop() -> ! {
                 }
                 if !matched {
                     let (fg, focus) = foreground_focus();
-                    cvlog!("[cv-inj] focus NEVER matched; injecting at fg={fg} focus={focus}");
+                    cvlog!("[cv-inj] paste cancelled: focus mismatch fg={fg} focus={focus}");
+                    continue;
                 }
                 keybd_event(VK_CONTROL.0 as u8, 0, KEYBD_EVENT_FLAGS(0), 0);
                 keybd_event(VK_V.0 as u8, 0, KEYBD_EVENT_FLAGS(0), 0);
