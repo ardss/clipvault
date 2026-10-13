@@ -139,7 +139,8 @@ const COLS: &str =
 /// refresh payload (~2 MB at 500 rows) while previews never exceed it
 pub fn list(conn: &Connection, filter: &str, query: &str) -> Result<Vec<Clip>, String> {
     cvlog!(
-        "[cv] list: filter={filter:?} query={query:?} total={}",
+        "[cv] list: filter={filter:?} query_chars={} total={}",
+        query.chars().count(),
         if std::env::var("CV_LOG").is_ok() {
             conn.query_row("SELECT count(*) FROM clips", [], |r| r.get::<_, i64>(0))
                 .unwrap_or(-1)

@@ -204,47 +204,104 @@ fn spawn_images_reconcile(h: tauri::AppHandle) {
             return;
         };
         let conn = st.0.lock().unwrap_or_else(|p| p.into_inner());
-        let mut removed = 0;
-        if let Ok(entries) = std::fs::read_dir(&dir) {
-            for e in entries.flatten() {
-                let p = e.path();
-                let s = p.to_string_lossy().into_owned();
-                // thumbnails are named {hash}_t.png and never stored in
-                // image_path — match them via the row's full-image path,
-                // otherwise every startup would delete every thumbnail
-                let referenced: bool = conn
-                    .query_row(
-                        "SELECT count(*) FROM clips WHERE image_path=?1 OR replace(image_path, '.png', '_t.png')=?1",
-                        rusqlite::params![s, s],
-                        |r| r.get::<_, i64>(0),
-                    )
-                    .map(|c| c > 0)
-                    .unwrap_or(true);
-                if !referenced && std::fs::remove_file(&p).is_ok() {
-                    removed += 1;
-                }
-            }
-        }
-        let mut dead = 0;
-        if let Ok(mut stmt) = conn.prepare(
-            "SELECT id, image_path FROM clips WHERE kind='image' AND image_path IS NOT NULL",
-        ) {
-            let rows = stmt
-                .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))
-                .map_err(|e| e.to_string());
-            if let Ok(rows) = rows {
-                for (id, p) in rows.flatten() {
-                    if !std::path::Path::new(&p).exists() {
-                        let _ = conn.execute("DELETE FROM clips WHERE id=?1", [id]);
-                        dead += 1;
-                    }
-                }
-            }
-        }
-        if removed > 0 || dead > 0 {
-            cvlog!("[cv] reconciled: removed {removed} orphan images, {dead} dead rows");
+        let (removed, missing) = reconcile_images(&conn, &dir);
+        if removed > 0 || missing > 0 {
+            cvlog!("[cv] image reconcile: {removed} aged orphans removed, {missing} missing files retained in history");
         }
     });
+}
+
+/// Capture writes the image before its DB row, outside the DB lock. A startup
+/// sweep can see that in-flight file as an orphan; never delete fresh files.
+/// Missing images may be temporarily unavailable (backup/restore, AV scan),
+/// so preserve the history row and let the UI display its expired state.
+fn reconcile_images(conn: &rusqlite::Connection, dir: &std::path::Path) -> (usize, usize) {
+    const ORPHAN_GRACE: Duration = Duration::from_secs(7 * 24 * 60 * 60);
+    let mut removed = 0;
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for e in entries.flatten() {
+            let p = e.path();
+            if !p.is_file() || p.extension().and_then(|e| e.to_str()) != Some("png") {
+                continue;
+            }
+            // If metadata/time cannot be read, fail closed: keep the file.
+            let aged = std::fs::metadata(&p)
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| t.elapsed().ok())
+                .is_some_and(|age| age >= ORPHAN_GRACE);
+            if !aged {
+                continue;
+            }
+            let s = p.to_string_lossy().into_owned();
+            // On a DB error, never treat an image as unreferenced.
+            let referenced = conn.query_row(
+                "SELECT count(*) FROM clips WHERE image_path=?1 OR replace(image_path, '.png', '_t.png')=?1",
+                rusqlite::params![s, s],
+                |r| r.get::<_, i64>(0),
+            );
+            if matches!(referenced, Ok(0)) && std::fs::remove_file(&p).is_ok() {
+                removed += 1;
+            }
+        }
+    }
+    let mut missing = 0;
+    if let Ok(mut stmt) =
+        conn.prepare("SELECT image_path FROM clips WHERE kind='image' AND image_path IS NOT NULL")
+    {
+        if let Ok(rows) = stmt.query_map([], |r| r.get::<_, String>(0)) {
+            for p in rows.flatten() {
+                if !std::path::Path::new(&p).exists() {
+                    missing += 1;
+                }
+            }
+        }
+    }
+    (removed, missing)
+}
+
+#[cfg(test)]
+mod image_reconcile_tests {
+    use super::*;
+
+    #[test]
+    fn startup_keeps_inflight_image_and_missing_history_row() {
+        let dir = std::env::temp_dir().join(format!(
+            "cv-reconcile-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let fresh = dir.join("inflight.png");
+        std::fs::write(&fresh, b"simulated-image").unwrap();
+        let missing = dir.join("temporarily-unavailable.png");
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE clips(id INTEGER PRIMARY KEY, kind TEXT, image_path TEXT);",
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO clips(id,kind,image_path) VALUES(1,'image',?1)",
+            [missing.to_string_lossy().as_ref()],
+        )
+        .unwrap();
+        let (removed, absent) = reconcile_images(&conn, &dir);
+        assert_eq!((removed, absent), (0, 1));
+        assert!(
+            fresh.exists(),
+            "fresh image awaiting DB insert must survive"
+        );
+        assert_eq!(
+            conn.query_row("SELECT count(*) FROM clips", [], |r| r.get::<_, i64>(0))
+                .unwrap(),
+            1,
+            "missing image must not silently erase its clipboard history"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }
 
 fn build_tray(app: &tauri::App) -> tauri::Result<()> {

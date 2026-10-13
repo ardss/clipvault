@@ -85,7 +85,12 @@ pub(crate) fn handle_clipboard_change(app: &AppHandle) {
     let lock = || st.0.lock().unwrap_or_else(|p| p.into_inner());
     let incoming: Option<Incoming> = if let Some(files) = win::read_clipboard_files() {
         cvlog!("[cv] files read: {}", files.len());
-        Some(Incoming::Files(files))
+        // File paths are clipboard content too, and can be sensitive.
+        if files.iter().any(|p| is_sensitive_copy(p, &keywords)) {
+            None
+        } else {
+            Some(Incoming::Files(files))
+        }
     } else {
         cvlog!("[cv] files: none, trying text/html/dib");
         let mut text = win::read_clipboard_text();
@@ -106,10 +111,23 @@ pub(crate) fn handle_clipboard_change(app: &AppHandle) {
             }
         }
         if let (Some(t), Some(h)) = (&text, &html) {
-            Some(Incoming::Html(t.clone(), h.clone()))
+            if is_sensitive_copy(t, &keywords)
+                || is_sensitive_copy(&String::from_utf8_lossy(h), &keywords)
+            {
+                None
+            } else {
+                Some(Incoming::Html(t.clone(), h.clone()))
+            }
         } else if let Some(h) = html {
             // some writers set "HTML Format" without CF_UNICODETEXT
-            Some(Incoming::Html(html_to_plain(&h), h))
+            let plain = html_to_plain(&h);
+            if is_sensitive_copy(&plain, &keywords)
+                || is_sensitive_copy(&String::from_utf8_lossy(&h), &keywords)
+            {
+                None
+            } else {
+                Some(Incoming::Html(plain, h))
+            }
         } else if let Some(t) = text {
             let clean = sanitize_text(&t);
             let lower = clean.to_lowercase();
@@ -202,6 +220,15 @@ pub(crate) fn handle_clipboard_change(app: &AppHandle) {
     }
 }
 
+/// Case-insensitive sensitive-word check shared by text, rich HTML and file paths.
+fn is_sensitive_copy(content: &str, keywords: &[String]) -> bool {
+    let lower = content.to_lowercase();
+    keywords.iter().any(|k| {
+        let keyword = k.trim().to_lowercase();
+        !keyword.is_empty() && lower.contains(&keyword)
+    })
+}
+
 /// Removes control characters that break rendering/search (keeps newline, CR, tab).
 fn sanitize_text(s: &str) -> String {
     s.chars()
@@ -237,6 +264,16 @@ fn html_to_plain(html: &[u8]) -> String {
 #[cfg(test)]
 mod logic_tests {
     use super::*;
+
+    #[test]
+    fn rich_text_and_file_paths_use_the_same_sensitive_filter() {
+        let terms = vec!["SECRET".to_string(), " token ".to_string()];
+        assert!(is_sensitive_copy("Hello secret from editor", &terms));
+        assert!(is_sensitive_copy("<div data-key='token'>ok</div>", &terms));
+        assert!(is_sensitive_copy("C:/documents/Secret/notes.txt", &terms));
+        assert!(!is_sensitive_copy("harmless meeting notes", &terms));
+        assert!(!is_sensitive_copy("anything", &[" ".to_string()]));
+    }
 
     // ---- sanitize_text ----
 
