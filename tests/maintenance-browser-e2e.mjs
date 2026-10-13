@@ -90,6 +90,17 @@ test('ClipVault compiled panel: search/pin/settings/restart/clear/390px', { time
       'settings persist after restart');
     await page.screenshot({ path: artifacts + '/clipvault-390-settings.png' });
 
+    // Privacy: the public interactive demo must not secretly persist text
+    // matching the user's configured sensitive-keyword filter.
+    const blocked = await page.evaluate(() => ({
+      accepted: window.cvDemo.addClip('TOKEN=synthetic-secret', 'text'),
+      stored: localStorage.getItem('cv-demo-clips.v1').includes('synthetic-secret'),
+      count: JSON.parse(localStorage.getItem('cv-demo-clips.v1')).length
+    }));
+    assert.equal(blocked.accepted, false, 'sensitive value should be rejected');
+    assert.equal(blocked.stored, false, 'sensitive value must never reach localStorage');
+    assert.equal(blocked.count, 11, 'filter must leave clip count unchanged');
+
     const countBefore = await page.evaluate(() => JSON.parse(localStorage.getItem('cv-demo-clips.v1')).length);
     assert.equal(countBefore, 11, 'demo data only; safe to test double-confirm delete');
     await page.locator('button.clear-btn').click();

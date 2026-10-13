@@ -83,6 +83,15 @@ import seedShot2 from './assets/seed-shot2.png'
     }
   }
   function addClip(preview, kind) {
+    // Match the desktop app's filter in the browser-only interactive demo.
+    // Never persist a simulated sensitive clipboard value to localStorage.
+    const settings = loadSettings()
+    if (settings?.paused) return false
+    const text = String(preview ?? '').toLowerCase()
+    const keywords = Array.isArray(settings?.sensitive_keywords)
+      ? settings.sensitive_keywords.map(k => String(k).trim().toLowerCase()).filter(Boolean)
+      : []
+    if (keywords.some(k => text.includes(k))) return false
     const rows = load()
     rows.push({ id: 'demo_' + Date.now(), kind: kind || 'text', preview, content: preview, pinned: false, created_at: Date.now(), paste_count: 0 })
     save(rows)
