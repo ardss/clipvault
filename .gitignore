@@ -2,5 +2,7 @@ node_modules/
 dist/
 src-tauri/target/
 src-tauri/gen/schemas/
+# Synthetic browser-test screenshots; source tests stay tracked.
+tests/.artifacts/
 *.log
 .DS_Store
