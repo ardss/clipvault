@@ -22,21 +22,6 @@ fn paste_target_matches(want: (isize, isize), actual: (isize, isize)) -> bool {
     want.0 != 0 && actual.0 == want.0 && (want.1 == 0 || actual.1 == want.1)
 }
 
-#[cfg(test)]
-mod focus_guard_tests {
-    use super::paste_target_matches;
-
-    #[test]
-    fn only_original_window_can_receive_paste() {
-        assert!(paste_target_matches((101, 201), (101, 201)));
-        assert!(paste_target_matches((101, 0), (101, 999)));
-        assert!(!paste_target_matches((101, 201), (999, 201)));
-        assert!(!paste_target_matches((101, 201), (101, 999)));
-        assert!(!paste_target_matches((0, 0), (999, 0)));
-        assert!(!paste_target_matches((101, 201), (0, 0)));
-    }
-}
-
 /// Runs in a helper process (`app.exe --injector`): waits on the named event
 /// and performs the paste keystroke. Exits when the main app is gone.
 pub fn injector_loop() -> ! {
@@ -205,5 +190,20 @@ pub fn request_paste_keystroke(target: isize, focus: isize) -> bool {
             ok
         }
         None => false,
+    }
+}
+
+#[cfg(test)]
+mod focus_guard_tests {
+    use super::paste_target_matches;
+
+    #[test]
+    fn only_original_window_can_receive_paste() {
+        assert!(paste_target_matches((101, 201), (101, 201)));
+        assert!(paste_target_matches((101, 0), (101, 999)));
+        assert!(!paste_target_matches((101, 201), (999, 201)));
+        assert!(!paste_target_matches((101, 201), (101, 999)));
+        assert!(!paste_target_matches((0, 0), (999, 0)));
+        assert!(!paste_target_matches((101, 201), (0, 0)));
     }
 }

@@ -308,8 +308,7 @@ pub(crate) fn paste_clip(
 ) -> Result<(), String> {
     let (kind, content, image_path) = {
         let conn = state.0.lock().unwrap_or_else(|p| p.into_inner());
-        let r = db::get_clip(&conn, id);
-        r
+        db::get_clip(&conn, id)
     }?;
     // No external paste destination: fail before changing the system clipboard.
     // A tray/second-instance re-show may have preserved a zero target.
