@@ -5,8 +5,30 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [0.1.3] - 2026-10-23
+
+### Fixed
+
+- Pasting no longer touches the system clipboard when the original target window is gone — the paste is cancelled with `FOCUS_LOST` before any clipboard write (`IsWindow` validation)
+- A second launch while the panel already owns focus no longer replaces the captured paste destination with ClipVault's own window; second-instance now reuses the same show path as hotkey/tray, keeping `PASTE_TARGET` and panel visibility consistent
+- Dismissing the settings panel (or switching to statistics) now cancels an armed clear-history confirmation — a later unrelated click can no longer wipe history
+- JS error reporting logs only the event class, never message contents (clipboard text could leak into thrown error strings and source URLs)
+- Failure-injection example restored after an editor corrupted its file encoding (stray BOM + mojibake)
+
+### Documentation
+
+- CHANGELOG repaired: the `[Unreleased]` header had drifted below 0.1.1 and the 0.1.2 section had lost its heading; both restored
+- README: removed a duplicated "Technical notes" heading
+
+## [0.1.2] - 2026-10-01
+
+### Added
+
 - History, settings and window robustness: hotkey fallback re-registration (never left without a summon shortcut), limit/height clamps with corrupt-settings backup, monotonic timestamps (clock-rollback safe), listener-window retry instead of panic
 - Corrupt-db recovery tested by failure injection (kill-during-write, truncation, byte flips, WAL torture)
+- Installer auto-launches the app after install (NSIS POSTINSTALL hook) — updating becomes run-installer-and-done, the app returns to the tray by itself
 
 ### Changed
 
@@ -20,7 +42,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Release profile: codegen-units=1; landing-page images re-encoded (−2.1 MB)
 
 ## [0.1.1] - 2026-09-18
-## [Unreleased]
 
 ### Added
 

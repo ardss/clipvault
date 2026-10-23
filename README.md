@@ -65,8 +65,6 @@ See [docs/TESTING.md](docs/TESTING.md) and [docs/RELEASE_CHECKLIST.md](docs/RELE
 
 ## Technical notes
 
-## Technical notes
-
 - Clipboard write compatibility: images are offered both as standard CF_DIB
   (bottom-up) and the registered "PNG" format — Chromium-based apps
   (Chrome/VS Code/Electron) and GDI apps both read them correctly; DIB
