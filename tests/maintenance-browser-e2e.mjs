@@ -103,6 +103,19 @@ test('ClipVault compiled panel: search/pin/settings/restart/clear/390px', { time
 
     const countBefore = await page.evaluate(() => JSON.parse(localStorage.getItem('cv-demo-clips.v1')).length);
     assert.equal(countBefore, 11, 'demo data only; safe to test double-confirm delete');
+    // A first click must NOT stay armed when the settings panel is dismissed.
+    // Otherwise an unrelated later click could permanently delete history.
+    await page.locator('button.clear-btn').click();
+    await page.locator('button[title="设置"]').click();
+    await page.locator('button[title="设置"]').click();
+    assert.match(await page.locator('button.clear-btn').innerText(), /清空全部历史/,
+      'closing settings cancels a pending destructive confirmation');
+    assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('cv-demo-clips.v1')).length), 11);
+    await page.locator('button.clear-btn').click();
+    await page.locator('button[title="统计"]').click();
+    await page.locator('button[title="设置"]').click();
+    assert.match(await page.locator('button.clear-btn').innerText(), /清空全部历史/,
+      'switching from settings to statistics also cancels destructive confirmation');
     await page.locator('button.clear-btn').click();
     assert.match(await page.locator('button.clear-btn').innerText(), /再点一次确认/);
     assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('cv-demo-clips.v1')).length), 11,

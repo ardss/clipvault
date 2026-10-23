@@ -102,10 +102,10 @@ pub fn run() {
     }
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            // second launch: surface the existing instance's panel instead
-            if let Some(w) = app.get_webview_window("panel") {
-                let _ = w.show();
-            }
+            // Second launch must use the same show path as the hotkey/tray:
+            // raw window.show() leaves PASTE_TARGET and PANEL_VISIBLE stale,
+            // so paste can fail to restore the previous application focus.
+            show_panel(app);
         }))
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()

@@ -12,11 +12,12 @@ const isZoomWin =
   new URLSearchParams(window.location.search).has('zoom')
 
 // surface JS errors to the backend log — a blank panel must never be a mystery
-window.addEventListener('error', (e) => {
-  invoke('report_error', { msg: `${String(e.message)} @${e.filename}:${e.lineno}` }).catch(() => {})
+window.addEventListener('error', () => {
+  // Clipboard content can appear inside thrown errors or source URLs. Log only the event class.
+  invoke('report_error', { msg: 'js-error' }).catch(() => {})
 })
-window.addEventListener('unhandledrejection', (e) => {
-  invoke('report_error', { msg: `unhandled: ${String(e.reason)}` }).catch(() => {})
+window.addEventListener('unhandledrejection', () => {
+  invoke('report_error', { msg: 'unhandled-rejection' }).catch(() => {})
 })
 
 const i18n = {
@@ -139,7 +140,13 @@ async function openStats() {
   showStats.value = true
   stats.value = await invoke('stats')
 }
-function closeOverlays() { showStats.value = false; showSettings.value = false }
+function closeOverlays() {
+  showStats.value = false
+  showSettings.value = false
+  // Dismissing settings invalidates a pending destructive confirmation.
+  clearArmed.value = false
+  clearTimeout(clearTimer)
+}
 const dailyMax = computed(() => Math.max(1, ...(stats.value?.daily.map((d) => d[1]) ?? [1])))
 
 let settingsLoaded = false

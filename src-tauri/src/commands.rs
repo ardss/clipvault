@@ -7,12 +7,65 @@ use tauri::{AppHandle, Emitter, Manager};
 use crate::db;
 use crate::win;
 
+// A second launch while the panel already owns focus must not replace the
+// previously captured paste destination with ClipVault's own window.
+fn should_capture_paste_target(foreground: isize, panel: isize, zoom: isize) -> bool {
+    foreground != 0 && foreground != panel && foreground != zoom
+}
+
+fn validated_paste_target(target: isize) -> Result<isize, String> {
+    // The previously captured editor may have closed while the panel stayed open.
+    // Reject a stale nonzero HWND before any system clipboard write.
+    let alive = target != 0
+        && unsafe {
+            windows::Win32::UI::WindowsAndMessaging::IsWindow(windows::Win32::Foundation::HWND(
+                target as _,
+            ))
+        }
+        .as_bool();
+    if !alive {
+        Err("FOCUS_LOST".into())
+    } else {
+        Ok(target)
+    }
+}
+
+#[cfg(test)]
+mod paste_target_tests {
+    use super::{should_capture_paste_target, validated_paste_target};
+
+    #[test]
+    fn missing_target_is_rejected_before_clipboard_mutation() {
+        assert_eq!(validated_paste_target(0), Err("FOCUS_LOST".to_string()));
+        // A nonzero HWND may already belong to a closed application.
+        // Never overwrite the clipboard when the destination no longer exists.
+        assert_eq!(validated_paste_target(1), Err("FOCUS_LOST".to_string()));
+        let desktop = unsafe { windows::Win32::UI::WindowsAndMessaging::GetDesktopWindow() };
+        let live = desktop.0 as isize;
+        assert_eq!(validated_paste_target(live), Ok(live));
+    }
+
+    #[test]
+    fn second_launch_keeps_original_target_when_clipvault_is_foreground() {
+        assert!(!should_capture_paste_target(10, 10, 20)); // panel focused
+        assert!(!should_capture_paste_target(20, 10, 20)); // zoom focused
+        assert!(!should_capture_paste_target(0, 10, 20)); // no foreground
+        assert!(should_capture_paste_target(30, 10, 20)); // external editor
+    }
+}
+
 pub(crate) fn show_panel(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("panel") {
         cvlog!("[cv] panel url: {:?}", w.url());
         let fg = win::get_foreground();
-        win::PASTE_TARGET.store(fg, Ordering::SeqCst);
-        win::capture_focus(fg);
+        let panel_hwnd = w.hwnd().map(|h| h.0 as isize).unwrap_or(0);
+        let zoom_hwnd = win::ZOOM_HWND.load(Ordering::SeqCst);
+        if should_capture_paste_target(fg, panel_hwnd, zoom_hwnd) {
+            win::PASTE_TARGET.store(fg, Ordering::SeqCst);
+            win::capture_focus(fg);
+        } else {
+            cvlog!("[cv] panel re-show: preserve previous paste target");
+        }
         let (cx, cy) = win::get_cursor_pos();
         // use the panel's REAL current size (user-resizable), not a constant
         let (pw, ph) = w
@@ -139,10 +192,42 @@ pub(crate) fn clip_content(state: tauri::State<crate::db::Db>, id: i64) -> Resul
     db::get_content(&state.0.lock().unwrap_or_else(|p| p.into_inner()), id)
 }
 
+fn js_error_category(message: &str) -> &'static str {
+    match message {
+        "js-error" => "js-error",
+        "unhandled-rejection" => "unhandled-rejection",
+        _ => "unknown-js-error",
+    }
+}
+
+#[cfg(test)]
+mod js_error_privacy_tests {
+    use super::js_error_category;
+
+    #[test]
+    fn never_persist_raw_error_text() {
+        assert_eq!(js_error_category("js-error"), "js-error");
+        assert_eq!(
+            js_error_category("unhandled-rejection"),
+            "unhandled-rejection"
+        );
+        assert_eq!(
+            js_error_category("password=secret copied text"),
+            "unknown-js-error"
+        );
+        assert_eq!(
+            js_error_category("unhandled: private search"),
+            "unknown-js-error"
+        );
+    }
+}
+
 #[tauri::command]
 pub(crate) fn report_error(app: AppHandle, msg: String) {
-    eprintln!("[cv-js-error] {msg}");
-    let line = format!("{:?} {msg}\n", std::time::SystemTime::now());
+    // Clipboard content may appear in arbitrary JS exception text. Only log known event classes.
+    let category = js_error_category(&msg);
+    eprintln!("[cv-js-error] {category}");
+    let line = format!("{:?} {category}\n", std::time::SystemTime::now());
     // cap the log so a failing webview can't grow it unbounded
     if let Ok(meta) = std::fs::metadata(
         app.path()
@@ -226,6 +311,9 @@ pub(crate) fn paste_clip(
         let r = db::get_clip(&conn, id);
         r
     }?;
+    // No external paste destination: fail before changing the system clipboard.
+    // A tray/second-instance re-show may have preserved a zero target.
+    let target = validated_paste_target(win::PASTE_TARGET.load(Ordering::SeqCst))?;
     let ok = match kind.as_str() {
         "image" => {
             let png = std::fs::read(image_path.unwrap_or_default()).unwrap_or_default();
@@ -257,8 +345,7 @@ pub(crate) fn paste_clip(
     if !ok {
         return Err("clipboard write failed".into());
     }
-    // read the target BEFORE hide_panel — hide clears it
-    let target = win::PASTE_TARGET.load(Ordering::SeqCst);
+    // The target was validated before writing; hide_panel clears the global.
     hide_panel(&app);
     let mut restored = win::restore_foreground(target);
     if restored {
