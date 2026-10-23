@@ -119,12 +119,24 @@ pub fn focus_hwnd() -> isize {
     FOCUS_HWND.load(Ordering::SeqCst)
 }
 
+/// Writes the injector handshake file: the (target, focus) pair the injector
+/// must verify before sending the keystroke. The file is consumed on read, so
+/// a failed write leaves the PREVIOUS paste's target in place — callers must
+/// refuse to signal after an error.
+fn write_handshake(file: &std::path::Path, target: isize, focus: isize) -> std::io::Result<()> {
+    std::fs::write(file, format!("{target} {focus}"))
+}
+
 /// Signals the resident injector to send Ctrl+V. Returns false when the
 /// injector can't be reached — the caller must surface that (the panel is
 /// already hidden at that point, so a silent no-op would lose the paste).
 pub fn request_paste_keystroke(target: isize, focus: isize) -> bool {
-    // tell the injector what "ready" looks like
-    let _ = std::fs::write(inject_file(), format!("{target} {focus}"));
+    // A failed handshake leaves the previous paste's target file on disk;
+    // signalling anyway could send the keystroke to that stale target.
+    if write_handshake(&inject_file(), target, focus).is_err() {
+        cvlog!("[cv] handshake write failed — refusing to signal injector");
+        return false;
+    }
     static CACHE: StdMutex<Option<isize>> = StdMutex::new(None);
     let mut cache = CACHE.lock().unwrap_or_else(|p| p.into_inner());
     if let Some(h) = *cache {
@@ -205,5 +217,25 @@ mod focus_guard_tests {
         assert!(!paste_target_matches((101, 201), (101, 999)));
         assert!(!paste_target_matches((0, 0), (999, 0)));
         assert!(!paste_target_matches((101, 201), (0, 0)));
+    }
+}
+
+#[cfg(test)]
+mod handshake_tests {
+    use super::write_handshake;
+
+    #[test]
+    fn handshake_write_failure_is_surfaced_not_swallowed() {
+        // Failure injection: a path whose parent is a FILE can never be
+        // created — write_handshake must surface the error so the caller
+        // refuses to signal, instead of silently leaving a stale target.
+        let blocker = std::env::temp_dir().join("clipvault-handshake-blocker");
+        std::fs::write(&blocker, b"x").unwrap();
+        let bad = blocker.join("sub").join("cv-inject.txt");
+        assert!(write_handshake(&bad, 101, 202).is_err());
+        let good = std::env::temp_dir().join("clipvault-handshake-ok.txt");
+        assert!(write_handshake(&good, 101, 202).is_ok());
+        let _ = std::fs::remove_file(&good);
+        let _ = std::fs::remove_file(&blocker);
     }
 }

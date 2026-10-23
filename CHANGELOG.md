@@ -11,8 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Pasting no longer touches the system clipboard when the original target window is gone — the paste is cancelled with `FOCUS_LOST` before any clipboard write (`IsWindow` + owner-PID identity check, so a recycled HWND value is also rejected)
+- Pasting no longer touches the system clipboard when the original target window is gone — the paste is cancelled with `FOCUS_LOST` before any clipboard write (`IsWindow` + owner-PID identity check; this catches the common closed/recycled-target cases, though no Win32 check is fully race-free)
 - Pasting is also cancelled when the foreground window stops matching the captured destination at inject time — the injector now aborts instead of sending the keystroke into whatever is focused
+- A failed injector handshake write now refuses to signal the injector — previously the write result was ignored, so a stale handshake from the previous paste could redirect the keystroke
 - A second launch while the panel already owns focus no longer replaces the captured paste destination with ClipVault's own window; second-instance now reuses the same show path as hotkey/tray, keeping `PASTE_TARGET` and panel visibility consistent
 - Dismissing the settings panel (or switching to statistics) now cancels an armed clear-history confirmation — a later unrelated click can no longer wipe history
 - JS error reporting logs only the event class, never message contents (clipboard text could leak into thrown error strings and source URLs)
