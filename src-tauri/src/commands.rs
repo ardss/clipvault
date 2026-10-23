@@ -13,16 +13,36 @@ fn should_capture_paste_target(foreground: isize, panel: isize, zoom: isize) -> 
     foreground != 0 && foreground != panel && foreground != zoom
 }
 
-fn validated_paste_target(target: isize) -> Result<isize, String> {
-    // The previously captured editor may have closed while the panel stayed open.
-    // Reject a stale nonzero HWND before any system clipboard write.
+// Owner PID of a window (0 when the handle is gone).
+fn window_pid(target: isize) -> u32 {
+    if target == 0 {
+        return 0;
+    }
+    let mut pid = 0u32;
+    unsafe {
+        windows::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId(
+            windows::Win32::Foundation::HWND(target as _),
+            Some(&mut pid),
+        );
+    }
+    pid
+}
+
+fn validated_paste_target(target: isize, want_pid: u32) -> Result<isize, String> {
+    // The previously captured editor may have closed while the panel stayed
+    // open, and its HWND value may even have been recycled by an unrelated
+    // window. Reject anything that is not provably the same window — the
+    // (handle, owner pid) pair captured together at show time — before any
+    // system clipboard write.
     let alive = target != 0
+        && want_pid != 0
         && unsafe {
             windows::Win32::UI::WindowsAndMessaging::IsWindow(windows::Win32::Foundation::HWND(
                 target as _,
             ))
         }
-        .as_bool();
+        .as_bool()
+        && window_pid(target) == want_pid;
     if !alive {
         Err("FOCUS_LOST".into())
     } else {
@@ -36,13 +56,33 @@ mod paste_target_tests {
 
     #[test]
     fn missing_target_is_rejected_before_clipboard_mutation() {
-        assert_eq!(validated_paste_target(0), Err("FOCUS_LOST".to_string()));
+        assert_eq!(
+            validated_paste_target(0, 4242),
+            Err("FOCUS_LOST".to_string())
+        );
         // A nonzero HWND may already belong to a closed application.
         // Never overwrite the clipboard when the destination no longer exists.
-        assert_eq!(validated_paste_target(1), Err("FOCUS_LOST".to_string()));
+        assert_eq!(
+            validated_paste_target(1, 4242),
+            Err("FOCUS_LOST".to_string())
+        );
+        // An unknown captured owner (0) fails closed even for a live window.
         let desktop = unsafe { windows::Win32::UI::WindowsAndMessaging::GetDesktopWindow() };
         let live = desktop.0 as isize;
-        assert_eq!(validated_paste_target(live), Ok(live));
+        assert_eq!(
+            validated_paste_target(live, 0),
+            Err("FOCUS_LOST".to_string())
+        );
+        // Identity is the (handle, owner pid) pair: a live window whose owner
+        // differs from the captured pid is rejected.
+        let pid = super::window_pid(live);
+        assert_ne!(pid, 0);
+        assert_eq!(validated_paste_target(live, pid), Ok(live));
+        let other = if pid == u32::MAX { pid - 1 } else { pid + 1 };
+        assert_eq!(
+            validated_paste_target(live, other),
+            Err("FOCUS_LOST".to_string())
+        );
     }
 
     #[test]
@@ -62,6 +102,7 @@ pub(crate) fn show_panel(app: &AppHandle) {
         let zoom_hwnd = win::ZOOM_HWND.load(Ordering::SeqCst);
         if should_capture_paste_target(fg, panel_hwnd, zoom_hwnd) {
             win::PASTE_TARGET.store(fg, Ordering::SeqCst);
+            win::PASTE_TARGET_PID.store(window_pid(fg) as usize, Ordering::SeqCst);
             win::capture_focus(fg);
         } else {
             cvlog!("[cv] panel re-show: preserve previous paste target");
@@ -131,6 +172,7 @@ pub(crate) fn hide_panel(app: &AppHandle) {
     }
     win::PANEL_VISIBLE.store(false, Ordering::SeqCst);
     win::PASTE_TARGET.store(0, Ordering::SeqCst);
+    win::PASTE_TARGET_PID.store(0, Ordering::SeqCst);
 }
 
 /// Lazily creates the zoom preview window with a fixed, code-defined config —
@@ -311,8 +353,10 @@ pub(crate) fn paste_clip(
         db::get_clip(&conn, id)
     }?;
     // No external paste destination: fail before changing the system clipboard.
-    // A tray/second-instance re-show may have preserved a zero target.
-    let target = validated_paste_target(win::PASTE_TARGET.load(Ordering::SeqCst))?;
+    // A tray/second-instance re-show may have preserved a zero target; an
+    // outdated target must also match the owner pid captured with it.
+    let want_pid = win::PASTE_TARGET_PID.load(Ordering::SeqCst) as u32;
+    let target = validated_paste_target(win::PASTE_TARGET.load(Ordering::SeqCst), want_pid)?;
     let ok = match kind.as_str() {
         "image" => {
             let png = std::fs::read(image_path.unwrap_or_default()).unwrap_or_default();
