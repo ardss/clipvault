@@ -21,7 +21,7 @@ tauri-plugin-global-shortcut = "2"
 tauri-plugin-single-instance = "2"
 rusqlite = { version = "0.32", features = ["bundled"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
-windows = { version = "0.58", features = [
+windows = { version = "0.61", features = [
   "Win32_Foundation",
   "Win32_UI_WindowsAndMessaging",
   "Win32_System_DataExchange",
