@@ -60,10 +60,12 @@ fn handshake_child(
     focus_in_target: Option<isize>,
 ) -> Option<isize> {
     match restore {
-        // Verified restore: the handshake carries the exact verified
-        // identity (child == target self-focus included — strict, so the
-        // injector still enforces where focus is at fire time).
-        win::FocusRestore::Restored => Some(child),
+        // Verified restore: proceed ONLY if the live attribution still names
+        // the verified child — focus that moved after the restore cancels
+        // the paste (contract: a state change during the recovery window
+        // aborts immediately; it never rides on a stale identity). The
+        // self-focus case must report the target itself as current focus.
+        win::FocusRestore::Restored => (focus_in_target == Some(child)).then_some(child),
         // Nothing captured → the established top-level-only strategy.
         win::FocusRestore::NoCapturedChild => Some(0),
         // Dead control: degrade to top-level matching ONLY when the live
@@ -137,14 +139,28 @@ mod focus_handshake_tests {
     use crate::win::FocusRestore;
 
     #[test]
-    fn verified_restore_carries_exact_child_identity() {
-        assert_eq!(handshake_child(FocusRestore::Restored, 9, None), Some(9));
-        // self-focus stays strict: the handshake names the target itself,
-        // so the injector still enforces where focus is at fire time
+    fn restored_proceeds_only_while_attribution_still_names_child() {
+        // restore verified AND the live focus is still the verified child
+        assert_eq!(handshake_child(FocusRestore::Restored, 9, Some(9)), Some(9));
+        // self-focus stays strict: attribution must report the target itself
         assert_eq!(
-            handshake_child(FocusRestore::Restored, 101, None),
+            handshake_child(FocusRestore::Restored, 101, Some(101)),
             Some(101)
         );
+    }
+
+    #[test]
+    fn restored_with_unknown_attribution_cancels() {
+        // GPT round-4 regression: restore succeeded, but by handshake time
+        // the OS focus attribution is unknown → cancel, never blind-fire
+        assert_eq!(handshake_child(FocusRestore::Restored, 9, None), None);
+    }
+
+    #[test]
+    fn restored_with_focus_moved_to_sibling_cancels() {
+        // GPT round-4 regression: restore succeeded, but focus already
+        // moved to a different live control → cancel
+        assert_eq!(handshake_child(FocusRestore::Restored, 9, Some(77)), None);
     }
 
     #[test]
@@ -508,9 +524,13 @@ pub(crate) fn paste_clip(
         }
         win::FocusRestore::RestoreFailed => log_paste_cancel("restore_failed", target, child),
     }
-    let Some(handshake_focus) =
-        handshake_child(restore, child, win::current_focus_attribution(target))
-    else {
+    let attribution = win::current_focus_attribution(target);
+    if matches!(restore, win::FocusRestore::Restored) && attribution != Some(child) {
+        // restore succeeded but live focus already moved again — cancel and
+        // count it separately (contract: recovery-window state changes abort)
+        log_paste_cancel("focus_moved_after_restore", target, child);
+    }
+    let Some(handshake_focus) = handshake_child(restore, child, attribution) else {
         // cancellation paths are logged above with distinct tokens; the
         // clipboard content was written but we refuse to blind-fire the
         // keystroke at an unverified destination
@@ -524,6 +544,14 @@ pub(crate) fn paste_clip(
     // the target app needs a beat to finish re-activating (WinForms/WPF
     // restore their control focus asynchronously); 30ms was too early
     std::thread::sleep(Duration::from_millis(20));
+    // Re-verify the target identity immediately before issuing the
+    // handshake: the window may have closed or its handle been recycled
+    // while focus was being restored. Identity = the captured
+    // (handle, owner pid) pair, same rule as paste entry.
+    if validated_paste_target(target, want_pid).is_err() {
+        log_paste_cancel("target_lost_before_handshake", target, child);
+        return Err("FOCUS_LOST".into());
+    }
     win::log_send_time();
     cvlog!("[cv] paste: sending ctrl+v handshake target={target:x} focus={handshake_focus:x}");
     if !win::request_paste_keystroke(target, handshake_focus) {
