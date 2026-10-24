@@ -54,7 +54,15 @@ pub fn injector_loop() -> ! {
                 }
                 if !matched {
                     let (fg, focus) = foreground_focus();
-                    cvlog!("[cv-inj] paste cancelled: focus mismatch fg={fg} focus={focus}");
+                    // distinct statistic (contract: focus_moved counted
+                    // separately from restore_failed / child_destroyed);
+                    // handles only — never titles or clipboard content
+                    static FOCUS_MOVED: AtomicUsize = AtomicUsize::new(0);
+                    let n = FOCUS_MOVED.fetch_add(1, Ordering::SeqCst) + 1;
+                    cvlog!(
+                        "[cv-inj] paste cancelled: focus_moved #{n} want={:x} fg={fg:x} focus={focus:x}",
+                        want.1
+                    );
                     continue;
                 }
                 keybd_event(VK_CONTROL.0 as u8, 0, KEYBD_EVENT_FLAGS(0), 0);
@@ -114,9 +122,12 @@ fn read_inject_target() -> (isize, isize) {
     (0, 0)
 }
 
-/// The remembered focus child (0 once consumed by restore_focus).
-pub fn focus_hwnd() -> isize {
-    FOCUS_HWND.load(Ordering::SeqCst)
+/// Consumes the remembered focus child exactly once — later reads see 0.
+/// The paste path must take it BEFORE any restore step (v0.1.3 read it after
+/// restore_focus had already zeroed the slot, so the handshake always
+/// carried 0 and child matching was silently disabled).
+pub fn focus_hwnd_take() -> isize {
+    FOCUS_HWND.swap(0, Ordering::SeqCst)
 }
 
 /// Writes the injector handshake file: the (target, focus) pair the injector
@@ -217,6 +228,26 @@ mod focus_guard_tests {
         assert!(!paste_target_matches((101, 201), (101, 999)));
         assert!(!paste_target_matches((0, 0), (999, 0)));
         assert!(!paste_target_matches((101, 201), (0, 0)));
+    }
+
+    #[test]
+    fn focus_moved_to_sibling_control_cancels() {
+        // same top-level, focus now on a DIFFERENT live control → cancel
+        // (strict: the handshake names the exact verified control)
+        assert!(!paste_target_matches((101, 201), (101, 202)));
+    }
+
+    #[test]
+    fn unknown_child_focus_fails_closed() {
+        // the handshake names a child but the OS reports none (state
+        // unknown) → fail closed, never a loose pass
+        assert!(!paste_target_matches((101, 201), (101, 0)));
+    }
+
+    #[test]
+    fn child_identity_never_rescues_a_wrong_top_level() {
+        // a matching child cannot make up for a mismatched top-level
+        assert!(!paste_target_matches((101, 201), (999, 201)));
     }
 }
 

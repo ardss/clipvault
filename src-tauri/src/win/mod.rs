@@ -47,10 +47,11 @@ pub use formats::{
     log_clipboard_formats, read_clipboard_files, read_clipboard_html, read_clipboard_png_raw,
     write_clipboard_files, write_clipboard_html,
 };
-pub use injector::{focus_hwnd, injector_loop, request_paste_keystroke};
+pub use injector::{focus_hwnd_take, injector_loop, request_paste_keystroke};
 pub use window::{
-    capture_focus, get_cursor_pos, get_foreground, get_window_rect, log_send_time, point_in_panel,
-    restore_focus, restore_foreground, spawn_zoom_watchdog, update_panel_rect,
+    capture_focus, current_focus_attribution, get_cursor_pos, get_foreground, get_window_rect,
+    log_send_time, point_in_panel, restore_focus_verified, restore_foreground, spawn_zoom_watchdog,
+    update_panel_rect, FocusRestore,
 };
 
 // ---------- clipboard listener thread ----------

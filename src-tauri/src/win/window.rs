@@ -84,8 +84,17 @@ pub fn point_in_panel(x: i32, y: i32) -> bool {
     false
 }
 
-/// Remembers which child control inside `target` currently has keyboard focus,
-/// so it can be restored after the panel (which takes focus) is hidden.
+/// Records which window inside `target` should receive the paste, so focus
+/// can be restored after the panel (which takes focus) is hidden.
+///
+/// `hwndFocus` is the identity (Win32: the window receiving keyboard input);
+/// `hwndCaret` only draws the caret — related but NOT interchangeable
+/// (contract P1-3). The caret owner is auxiliary: used only when hwndFocus
+/// is unknown (0) or reports the top-level form itself (the WinForms quirk
+/// where focus is the form while the caret sits on a real control). Whatever
+/// gets recorded is re-validated against the target at restore time
+/// (identity + containment), so a stale or foreign capture fails closed
+/// instead of loosening the paste check.
 pub fn capture_focus(target: isize) {
     if target == 0 {
         return;
@@ -97,38 +106,237 @@ pub fn capture_focus(target: isize) {
             ..Default::default()
         };
         if GetGUIThreadInfo(thread, &mut gi).is_ok() {
-            // the caret owner is where typing lands; WinForms reports the
-            // top-level form as hwndFocus but keeps hwndCaret on the control
-            let best = if !gi.hwndCaret.0.is_null() {
-                gi.hwndCaret
-            } else {
-                gi.hwndFocus
-            };
-            eprintln!(
-                "[cv] capture_focus: target={target:x} focus={:x} caret={:x}",
-                gi.hwndFocus.0 as usize, gi.hwndCaret.0 as usize
+            let focus = gi.hwndFocus.0 as isize;
+            let caret = gi.hwndCaret.0 as isize;
+            let candidate = capture_candidate(focus, caret, target);
+            let same_thread = candidate == target || window_thread_id(candidate) == thread;
+            let stored = captured_child_gate(
+                candidate,
+                target,
+                same_thread,
+                is_descendant_of(candidate, target),
             );
-            FOCUS_HWND.store(best.0 as isize, Ordering::SeqCst);
+            FOCUS_HWND.store(stored, Ordering::SeqCst);
+            eprintln!(
+                "[cv] capture_focus: target={target:x} focus={focus:x} caret={caret:x} child={stored:x}"
+            );
         } else {
             cvlog!("[cv] capture_focus: GetGUIThreadInfo failed");
+            // unknown state — no child identity, top-level matching only
+            FOCUS_HWND.store(0, Ordering::SeqCst);
         }
     }
 }
 
-/// Re-attaches keyboard focus to the control remembered by capture_focus.
-pub fn restore_focus(target: isize) -> bool {
-    let fh = FOCUS_HWND.swap(0, Ordering::SeqCst);
-    if target == 0 || fh == 0 {
-        return false;
+/// Pure capture selection (unit-tested): hwndFocus is the identity; the
+/// caret owner is auxiliary only.
+fn capture_candidate(focus: isize, caret: isize, target: isize) -> isize {
+    if focus != 0 && focus != target {
+        focus
+    } else if caret != 0 {
+        caret
+    } else {
+        focus
     }
+}
+
+/// Pure capture gate (unit-tested): store only a provable identity — the
+/// target itself, or a live same-thread descendant. Anything else records as
+/// "no child" (top-level-only paste matching).
+fn captured_child_gate(
+    candidate: isize,
+    target: isize,
+    same_thread: bool,
+    descendant: bool,
+) -> isize {
+    if candidate == target || (candidate != 0 && same_thread && descendant) {
+        candidate
+    } else {
+        0
+    }
+}
+
+// ---------- verified focus restore (contract P1-1/P1-2) ----------
+
+/// Outcome of a verified focus restore. Every variant must be handled by the
+/// paste path; none may silently degrade into a looser paste check.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FocusRestore {
+    /// SetFocus succeeded AND the target thread's actual focus is the child.
+    Restored,
+    /// No child identity was captured — top-level matching is the whole
+    /// contract (nothing to restore).
+    NoCapturedChild,
+    /// The captured control no longer exists.
+    ChildDestroyed,
+    /// The captured handle exists but no longer belongs to the target
+    /// (different thread, not a descendant, not the target itself).
+    IdentityMismatch,
+    /// The target is valid but focus could not be restored to the captured
+    /// identity — never downgraded into a looser handshake.
+    RestoreFailed,
+}
+
+/// Fact-based classification of the captured child against the target.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ChildCheck {
+    RestoreChild,
+    RestoreSelf,
+    NoCapturedChild,
+    ChildDestroyed,
+    IdentityMismatch,
+}
+
+/// Pure classifier (unit-tested + exercised against real windows in tests).
+fn classify_child(
+    child: isize,
+    target: isize,
+    alive: bool,
+    same_thread: bool,
+    descendant: bool,
+) -> ChildCheck {
+    if child == 0 {
+        return ChildCheck::NoCapturedChild;
+    }
+    if child == target {
+        // IsChild(parent, parent) is false by definition — the top-level
+        // holding keyboard focus itself is a VALID identity, not an invalid
+        // one (contract P1-2).
+        return if alive {
+            ChildCheck::RestoreSelf
+        } else {
+            ChildCheck::ChildDestroyed
+        };
+    }
+    if !alive {
+        return ChildCheck::ChildDestroyed;
+    }
+    if !same_thread || !descendant {
+        return ChildCheck::IdentityMismatch;
+    }
+    ChildCheck::RestoreChild
+}
+
+fn child_alive(hwnd: isize) -> bool {
+    hwnd != 0 && unsafe { IsWindow(HWND(hwnd as _)) }.as_bool()
+}
+
+fn window_thread_id(hwnd: isize) -> u32 {
+    unsafe { GetWindowThreadProcessId(HWND(hwnd as _), None) }
+}
+
+fn is_descendant_of(child: isize, target: isize) -> bool {
+    child != 0
+        && child != target
+        && unsafe { IsChild(HWND(target as _), HWND(child as _)) }.as_bool()
+}
+
+/// Restores keyboard focus to the captured child, verifying identity before
+/// the call and the actual OS focus after it. The caller must handle every
+/// outcome; `RestoreFailed` and `IdentityMismatch` must never be turned into
+/// a looser paste check (contract P1-1).
+pub fn restore_focus_verified(target: isize, child: isize) -> FocusRestore {
+    if target == 0 {
+        // the paste path validates the target before writing; a zero target
+        // here means the identity itself is gone — fail closed
+        return FocusRestore::RestoreFailed;
+    }
+    let alive = child_alive(child);
+    let check = classify_child(
+        child,
+        target,
+        alive,
+        alive && window_thread_id(child) == window_thread_id(target),
+        alive && is_descendant_of(child, target),
+    );
+    match check {
+        ChildCheck::RestoreChild | ChildCheck::RestoreSelf => {
+            if set_focus_and_verify(target, child) {
+                FocusRestore::Restored
+            } else {
+                FocusRestore::RestoreFailed
+            }
+        }
+        ChildCheck::NoCapturedChild => FocusRestore::NoCapturedChild,
+        ChildCheck::ChildDestroyed => FocusRestore::ChildDestroyed,
+        ChildCheck::IdentityMismatch => FocusRestore::IdentityMismatch,
+    }
+}
+
+/// SetFocus + post-verification. SetFocus returns the focus hwnd from BEFORE
+/// the call, so its Result alone proves nothing about the transfer — the OS
+/// view of the target thread's focus is verified instead, with a short settle
+/// window (some frameworks reassign focus asynchronously on activation).
+fn set_focus_and_verify(target: isize, child: isize) -> bool {
     unsafe {
         let thread = GetWindowThreadProcessId(HWND(target as _), None);
         let this_thread = GetCurrentThreadId();
-        let _ = AttachThreadInput(this_thread, thread, true);
-        let ok = SetFocus(HWND(fh as _)).is_ok();
-        let _ = AttachThreadInput(this_thread, thread, false);
-        cvlog!("[cv] restore_focus: fh={fh:x} ok={ok}");
-        ok
+        let attached = AttachThreadInput(this_thread, thread, true).as_bool();
+        let set_ok = SetFocus(HWND(child as _)).is_ok();
+        if attached {
+            let _ = AttachThreadInput(this_thread, thread, false);
+        }
+        if !set_ok {
+            cvlog!("[cv] restore: SetFocus failed target={target:x} child={child:x}");
+            return false;
+        }
+        for _ in 0..5 {
+            if thread_focus_hwnd(target) == Some(child) {
+                return true;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        cvlog!("[cv] restore: post-set focus verify failed target={target:x} child={child:x}");
+        false
+    }
+}
+
+/// The hwnd currently owning keyboard focus on `target`'s thread, or None
+/// when the OS query fails (an unknown state, never treated as a match).
+fn thread_focus_hwnd(target: isize) -> Option<isize> {
+    unsafe {
+        let thread = GetWindowThreadProcessId(HWND(target as _), None);
+        let mut gi = GUITHREADINFO {
+            cbSize: std::mem::size_of::<GUITHREADINFO>() as u32,
+            ..Default::default()
+        };
+        if GetGUIThreadInfo(thread, &mut gi).is_ok() {
+            Some(gi.hwndFocus.0 as isize)
+        } else {
+            None
+        }
+    }
+}
+
+/// Where does keyboard focus actually live right now? `Some(hwnd)` only when
+/// the foreground IS the verified target and its thread reports a focus hwnd
+/// inside it; every other state is `None` (attribution unknown).
+pub fn current_focus_attribution(target: isize) -> Option<isize> {
+    let fg = get_foreground();
+    attributed_focus(fg, thread_focus_hwnd(target), target, &|h| {
+        is_descendant_of(h, target)
+    })
+}
+
+/// Pure attribution decision (unit-tested): foreground must BE the target,
+/// the reported focus must exist and be the target or its descendant.
+fn attributed_focus(
+    fg: isize,
+    thread_focus: Option<isize>,
+    target: isize,
+    is_descendant: &dyn Fn(isize) -> bool,
+) -> Option<isize> {
+    if target == 0 || fg != target {
+        return None;
+    }
+    let h = thread_focus?;
+    if h == 0 {
+        return None;
+    }
+    if h == target || is_descendant(h) {
+        Some(h)
+    } else {
+        None
     }
 }
 
@@ -223,4 +431,190 @@ pub fn spawn_zoom_watchdog(app: tauri::AppHandle<tauri::Wry>) {
             }
         }
     });
+}
+
+#[cfg(test)]
+mod focus_contract_tests {
+    use super::*;
+
+    // ---------- pure decision matrix (contract 8+2 scenarios) ----------
+
+    fn check(
+        child: isize,
+        target: isize,
+        alive: bool,
+        same_thread: bool,
+        descendant: bool,
+    ) -> ChildCheck {
+        classify_child(child, target, alive, same_thread, descendant)
+    }
+
+    #[test]
+    fn classify_matrix_covers_every_contract_branch() {
+        // no captured child → nothing to restore (top-level-only strategy)
+        assert_eq!(
+            check(0, 101, false, false, false),
+            ChildCheck::NoCapturedChild
+        );
+        // child == target: IsChild(parent, parent) is false by definition —
+        // self-focus is a VALID identity, never misjudged as invalid
+        assert_eq!(check(101, 101, true, true, false), ChildCheck::RestoreSelf);
+        assert_eq!(
+            check(101, 101, false, true, false),
+            ChildCheck::ChildDestroyed
+        );
+        // live child inside the verified target
+        assert_eq!(check(5, 101, true, true, true), ChildCheck::RestoreChild);
+        // captured control destroyed → explicit state, caller decides by
+        // attribution (never auto-loosened here)
+        assert_eq!(
+            check(5, 101, false, true, false),
+            ChildCheck::ChildDestroyed
+        );
+        // live but identity doesn't match: reused handle / foreign window /
+        // wrong thread → mismatch, paste must cancel
+        assert_eq!(
+            check(5, 101, true, false, false),
+            ChildCheck::IdentityMismatch
+        );
+        assert_eq!(
+            check(5, 101, true, true, false),
+            ChildCheck::IdentityMismatch
+        );
+    }
+
+    #[test]
+    fn capture_prefers_hwndfocus_caret_is_auxiliary_only() {
+        // a real focused child wins over the caret
+        assert_eq!(capture_candidate(7, 9, 101), 7);
+        // WinForms quirk: form reported as hwndFocus while the caret sits on
+        // the actual control — caret used as the finer identity here
+        assert_eq!(capture_candidate(101, 9, 101), 9);
+        // focus unknown entirely → caret as auxiliary
+        assert_eq!(capture_candidate(0, 9, 101), 9);
+        // top-level self-focus, no caret → the target itself is recorded
+        assert_eq!(capture_candidate(101, 0, 101), 101);
+        // nothing known at all
+        assert_eq!(capture_candidate(0, 0, 101), 0);
+    }
+
+    #[test]
+    fn capture_gate_stores_only_provable_identities() {
+        assert_eq!(captured_child_gate(101, 101, true, false), 101); // self
+        assert_eq!(captured_child_gate(9, 101, true, true), 9); // live descendant
+        assert_eq!(captured_child_gate(9, 101, true, false), 0); // foreign window
+        assert_eq!(captured_child_gate(9, 101, false, true), 0); // other thread
+        assert_eq!(captured_child_gate(0, 101, true, true), 0); // nothing
+    }
+
+    #[test]
+    fn attribution_requires_provably_verified_target() {
+        let desc = |h: isize| h == 9; // pretend 9 is a descendant of 101
+                                      // foreground is not the target → attribution unknown
+        assert_eq!(attributed_focus(202, Some(9), 101, &desc), None);
+        // foreground matches but the OS reports no/unknown focus
+        assert_eq!(attributed_focus(101, None, 101, &desc), None);
+        assert_eq!(attributed_focus(101, Some(0), 101, &desc), None);
+        // focus provably inside the verified target (self or descendant)
+        assert_eq!(attributed_focus(101, Some(101), 101, &desc), Some(101));
+        assert_eq!(attributed_focus(101, Some(9), 101, &desc), Some(9));
+        // thread reports focus OUTSIDE the target → not attributable
+        assert_eq!(attributed_focus(101, Some(77), 101, &desc), None);
+    }
+
+    // ---------- real Win32 identity checks (hidden windows, no input) ----
+
+    /// DefWindowProcW is generic in windows-0.58 and can't coerce to a
+    /// WNDPROC directly — wrap it like the clipboard listener does.
+    unsafe extern "system" fn test_wndproc(
+        hwnd: HWND,
+        msg: u32,
+        wparam: WPARAM,
+        lparam: LPARAM,
+    ) -> LRESULT {
+        DefWindowProcW(hwnd, msg, wparam, lparam)
+    }
+
+    /// Creates a real (hidden) window of a test-only class. Pass a real
+    /// parent for child windows, HWND::default() for a top-level — identity
+    /// facts then come from the actual OS.
+    fn test_window(parent: HWND, style: WINDOW_STYLE) -> HWND {
+        unsafe {
+            static ONCE: std::sync::Once = std::sync::Once::new();
+            let hmod = GetModuleHandleW(None).unwrap_or_default();
+            ONCE.call_once(|| {
+                let name: Vec<u16> = "ClipVaultFocusTest\0".encode_utf16().collect();
+                let wc = WNDCLASSW {
+                    lpfnWndProc: Some(test_wndproc),
+                    lpszClassName: PCWSTR(name.as_ptr()),
+                    hInstance: HINSTANCE(hmod.0),
+                    ..Default::default()
+                };
+                RegisterClassW(&wc);
+            });
+            let cls: Vec<u16> = "ClipVaultFocusTest\0".encode_utf16().collect();
+            CreateWindowExW(
+                WINDOW_EX_STYLE::default(),
+                PCWSTR(cls.as_ptr()),
+                PCWSTR(cls.as_ptr()),
+                style,
+                0,
+                0,
+                60,
+                40,
+                parent,
+                None,
+                HINSTANCE(hmod.0),
+                None,
+            )
+            .expect("test window creation")
+        }
+    }
+
+    #[test]
+    fn win32_identity_facts_use_real_windows() {
+        let parent = test_window(HWND::default(), WS_POPUP);
+        assert_ne!(parent.0 as isize, 0, "parent window must exist");
+        let child = test_window(parent, WS_CHILD);
+        assert_ne!(child.0 as isize, 0, "child window must exist");
+        let t = parent.0 as isize;
+        let c = child.0 as isize;
+
+        // facts through the exact gatherers restore_focus_verified uses
+        let alive = child_alive(c);
+        let same_thread = window_thread_id(c) == window_thread_id(t);
+        let descendant = is_descendant_of(c, t);
+        assert!(alive && same_thread && descendant, "real child facts");
+        assert_eq!(
+            classify_child(c, t, alive, same_thread, descendant),
+            ChildCheck::RestoreChild
+        );
+
+        // an unrelated top-level window is NOT inside the target
+        let other = test_window(HWND::default(), WS_POPUP);
+        let o = other.0 as isize;
+        let facts = (
+            child_alive(o),
+            window_thread_id(o) == window_thread_id(t),
+            is_descendant_of(o, t),
+        );
+        assert_eq!(
+            classify_child(o, t, facts.0, facts.1, facts.2),
+            ChildCheck::IdentityMismatch
+        );
+
+        // a fabricated handle is a destroyed child → fail closed
+        let fake: isize = 0x0DEFACED;
+        assert!(!child_alive(fake));
+        assert_eq!(
+            classify_child(fake, t, child_alive(fake), false, false),
+            ChildCheck::ChildDestroyed
+        );
+
+        unsafe {
+            let _ = DestroyWindow(child);
+            let _ = DestroyWindow(other);
+            let _ = DestroyWindow(parent);
+        }
+    }
 }

@@ -1,6 +1,6 @@
 //! Tauri commands plus the panel show/hide choreography they share with the
 //! hotkey handler and the tray menu.
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -50,6 +50,43 @@ fn validated_paste_target(target: isize, want_pid: u32) -> Result<isize, String>
     }
 }
 
+/// Contract decision (verified against GPT review 2026-10-24, P1-1/P1-2):
+/// which child value the injector handshake carries for a restore outcome.
+/// `None` cancels the paste — there is NO path that turns an uncertain state
+/// into a looser match. Pure, so the whole matrix is unit-testable.
+fn handshake_child(
+    restore: win::FocusRestore,
+    child: isize,
+    focus_in_target: Option<isize>,
+) -> Option<isize> {
+    match restore {
+        // Verified restore: the handshake carries the exact verified
+        // identity (child == target self-focus included — strict, so the
+        // injector still enforces where focus is at fire time).
+        win::FocusRestore::Restored => Some(child),
+        // Nothing captured → the established top-level-only strategy.
+        win::FocusRestore::NoCapturedChild => Some(0),
+        // Dead control: degrade to top-level matching ONLY when the live
+        // focus provably belongs to the verified target (the downgraded
+        // handshake value is 0); unknown attribution fails closed.
+        win::FocusRestore::ChildDestroyed => focus_in_target.map(|_| 0),
+        // Alive-but-foreign identity, or the restore didn't achieve its
+        // expectation: never downgrade an uncertain state into a loose
+        // match — a restore failure is not a reason to skip restoring.
+        win::FocusRestore::IdentityMismatch | win::FocusRestore::RestoreFailed => None,
+    }
+}
+
+/// Cancel-reason logging with distinct, greppable statistic tokens
+/// (child_destroyed / child_identity_mismatch / restore_failed — counted
+/// separately from the injector's focus_moved). Handles only: never titles
+/// or clipboard content.
+fn log_paste_cancel(reason: &str, target: isize, child: isize) {
+    static N: AtomicUsize = AtomicUsize::new(0);
+    let n = N.fetch_add(1, Ordering::SeqCst) + 1;
+    cvlog!("[cv] paste cancelled: {reason} #{n} target={target:x} child={child:x}");
+}
+
 #[cfg(test)]
 mod paste_target_tests {
     use super::{should_capture_paste_target, validated_paste_target};
@@ -91,6 +128,60 @@ mod paste_target_tests {
         assert!(!should_capture_paste_target(20, 10, 20)); // zoom focused
         assert!(!should_capture_paste_target(0, 10, 20)); // no foreground
         assert!(should_capture_paste_target(30, 10, 20)); // external editor
+    }
+}
+
+#[cfg(test)]
+mod focus_handshake_tests {
+    use super::handshake_child;
+    use crate::win::FocusRestore;
+
+    #[test]
+    fn verified_restore_carries_exact_child_identity() {
+        assert_eq!(handshake_child(FocusRestore::Restored, 9, None), Some(9));
+        // self-focus stays strict: the handshake names the target itself,
+        // so the injector still enforces where focus is at fire time
+        assert_eq!(
+            handshake_child(FocusRestore::Restored, 101, None),
+            Some(101)
+        );
+    }
+
+    #[test]
+    fn no_captured_child_uses_top_level_only() {
+        assert_eq!(
+            handshake_child(FocusRestore::NoCapturedChild, 0, None),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn destroyed_child_downgrades_only_on_verified_attribution() {
+        // live focus provably inside the verified target → the documented
+        // downgrade to top-level matching
+        assert_eq!(
+            handshake_child(FocusRestore::ChildDestroyed, 9, Some(9)),
+            Some(0)
+        );
+        assert_eq!(
+            handshake_child(FocusRestore::ChildDestroyed, 9, Some(101)),
+            Some(0)
+        );
+        // attribution unknown → fail closed (never a loose pass)
+        assert_eq!(handshake_child(FocusRestore::ChildDestroyed, 9, None), None);
+    }
+
+    #[test]
+    fn identity_mismatch_and_restore_failure_never_loosen() {
+        assert_eq!(
+            handshake_child(FocusRestore::IdentityMismatch, 9, Some(9)),
+            None
+        );
+        assert_eq!(
+            handshake_child(FocusRestore::RestoreFailed, 9, Some(101)),
+            None
+        );
+        assert_eq!(handshake_child(FocusRestore::RestoreFailed, 9, None), None);
     }
 }
 
@@ -388,13 +479,15 @@ pub(crate) fn paste_clip(
     if !ok {
         return Err("clipboard write failed".into());
     }
-    // The target was validated before writing; hide_panel clears the global.
+    // The target was validated before writing; hide_panel clears the target
+    // globals (the focus slot is consumed below, before anything restores).
     hide_panel(&app);
+    // Take the captured child BEFORE any restore step: the slot is
+    // single-consumer, and v0.1.3 read it after the restore had zeroed it,
+    // so the handshake always carried 0 and child matching was silently
+    // disabled (defect fixed under the GPT focus contract, 2026-10-24).
+    let child = win::focus_hwnd_take();
     let mut restored = win::restore_foreground(target);
-    if restored {
-        win::restore_focus(target);
-    }
-    let focus = win::focus_hwnd();
     for _ in 0..4 {
         if restored {
             break;
@@ -406,12 +499,34 @@ pub(crate) fn paste_clip(
     if !restored {
         return Err("FOCUS_LOST".into());
     }
+    let restore = win::restore_focus_verified(target, child);
+    match restore {
+        win::FocusRestore::Restored | win::FocusRestore::NoCapturedChild => {}
+        win::FocusRestore::ChildDestroyed => log_paste_cancel("child_destroyed", target, child),
+        win::FocusRestore::IdentityMismatch => {
+            log_paste_cancel("child_identity_mismatch", target, child)
+        }
+        win::FocusRestore::RestoreFailed => log_paste_cancel("restore_failed", target, child),
+    }
+    let Some(handshake_focus) =
+        handshake_child(restore, child, win::current_focus_attribution(target))
+    else {
+        // cancellation paths are logged above with distinct tokens; the
+        // clipboard content was written but we refuse to blind-fire the
+        // keystroke at an unverified destination
+        return Err("FOCUS_LOST".into());
+    };
+    if matches!(restore, win::FocusRestore::ChildDestroyed) {
+        cvlog!(
+            "[cv] paste: child destroyed, attribution verified — top-level-only handshake focus={handshake_focus:x}"
+        );
+    }
     // the target app needs a beat to finish re-activating (WinForms/WPF
     // restore their control focus asynchronously); 30ms was too early
     std::thread::sleep(Duration::from_millis(20));
     win::log_send_time();
-    cvlog!("[cv] paste: sending ctrl+v");
-    if !win::request_paste_keystroke(target, focus) {
+    cvlog!("[cv] paste: sending ctrl+v handshake target={target:x} focus={handshake_focus:x}");
+    if !win::request_paste_keystroke(target, handshake_focus) {
         return Err("paste keystroke could not be delivered (injector unavailable)".into());
     }
     db::mark_used(&state.0.lock().unwrap_or_else(|p| p.into_inner()), id);
