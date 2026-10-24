@@ -4,6 +4,33 @@
 > 风险登记（R-xx）是活文档：状态变更必须附证据；未实施的风险不得标记为已修复。
 > 裁决来源：ChatGPT「ClipVault发版审查」固定会话（AI互通项目）。变更未经 GPT 批准不得动代码。
 
+## 2026-10-24 午间轮（触发 12:43 +08:00，F1 补投 + 实施）
+
+### 巡检
+- 起点：`main == origin/main @ 50c6170`；Issues 0（13 个 open 全为 dependabot PR，与晨间一致）；Release v0.1.3 资产齐全非 draft；npm 6 项可升（同晨间记录，未动）；官网正常（Pages 随本轮部署绿）。
+
+### GPT 裁决（F1 修订案 · 第三轮）
+**REQUEST_CHANGES · 3 项边界修正 + 授权实施**：P1-1 失效/失败不得等于安全回退；P1-2 五态枚举 + SetFocus 后验实际焦点 + child==target 边界；P1-3 hwndFocus 为身份、hwndCaret 仅辅助。其余全部 APPROVE（含 8 场景矩阵 + 兄弟控件/child==target 补充、CI→Draft→人工验收顺序、v0.1.4 patch）。明确授权：实施+验证；**不授权 tag 与公开发布**；无需第四版文字方案。
+
+### 执行（F1，commit ded749c）
+- `capture_focus`：hwndFocus 身份化，hwndCaret 仅在焦点未知/表单自焦点时辅助，入库过归属门（P1-3）。
+- `restore_focus_verified` 五态枚举：SetFocus 前身份检查（alive/同线程/IsChild/自焦点），SetFocus 后 GetGUIThreadInfo 验实际焦点（P1-1/2）。
+- paste 路径：child 一次性消费前置——**v0.1.3 缺陷确认**：恢复后读被 swap(0) 清零的槽位，握手恒 0、子控件匹配从未生效；前台重试成功路径此前跳过焦点恢复，已统一走验证。
+- 握手决策纯函数 `handshake_child`：Restored→(target,child) 严格；NoCapturedChild→(target,0)；ChildDestroyed 仅归属验证后降级；IdentityMismatch/RestoreFailed 取消。
+- cvlog 四类统计 token（focus_moved/child_destroyed/child_identity_mismatch/restore_failed），只记句柄不记标题/内容。
+- 测试 +12（window 5 / injector 3 / commands 4），含真实隐藏 Win32 父子窗口身份取证；cargo test **49/49 绿**（3.3s）、fmt / clippy -D warnings 绿。
+- push main → **CI 5/5 绿**（run 40065856496）+ Pages 绿。
+- 实施回执（diff 摘要/矩阵/CI URL/边界声明）已投 GPT；截至收尾 GPT 未复核（第四轮），不阻塞——tag 本就未获授权。
+
+### 发版
+否（GPT 明确暂不授权 tag/发布；待用户 Draft 回归 + §4 物理核验后另行走发版轮）。
+
+### 遗留
+- 链路：GPT 第四轮复核 → 用户真实应用粘贴回归（记事本/浏览器输入框/一种原生多控件）→ v0.1.4 候选 Draft → §4 物理核验 → 才可公开发布。
+- GitHub 2FA：用户侧待办（巡检仍走匿名 API）。
+- 依赖升级：留功能窗口。
+- 浏览器死状态教训：ChatGPT 后台标签 evaluate 反复超时，本次靠「唤醒重试 + 副本标签 271 补投 + reload 后草稿恢复」走通；重载恢复的陈旧草稿已清理（防误发）。
+
 ## 2026-10-24 维护轮（触发 06:40 +08:00）
 
 ### 巡检
@@ -33,13 +60,13 @@
 ## 风险池（2026-10-24 登记）
 
 ### R-01 焦点子控件匹配重构
-- 严重度：P1（粘贴正确性，不丢不串）｜首次登记：2026-10-23（v0.1.3 监督轮）｜状态：**方案修订中**（2026-10-24 GPT REQUEST_CHANGES）｜计划版本：v0.1.4
+- 严重度：P1（粘贴正确性，不丢不串）｜首次登记：2026-10-23（v0.1.3 监督轮）｜状态：**已实施待复核**（2026-10-24 午间 commit ded749c，第三轮契约 P1-1/2/3 全落地，本地三门禁 + CI 5/5 绿；回执已投 GPT 待第四轮复核）｜计划版本：v0.1.4
 - 问题：`src-tauri/src/win/injector.rs:19-23` 要求子控件句柄完全相等——原子控件存活但焦点转移到同窗口其他控件时误取消合法粘贴；`src-tauri/src/win/window.rs:118-132` `restore_focus()` 直接 `SetFocus()`，未验证有效性/归属；`src-tauri/src/commands.rs:391-415` 调用后忽略返回值并读取已清零句柄，注入器随后按「子控件未知」放行。
 - 影响范围：粘贴注入全路径。
 - 验收标准（GPT 安全契约，2026-10-24）：① 顶层校验不降级（HWND + owner-PID，任何不匹配/未知/失败即中止）；② `SetFocus` 前先验证子控件有效且归属目标窗口；③ 区分四态——有效且匹配 / 有效但焦点不匹配 / 已失效或身份不符 / 状态未知，仅明确符合回退条件才退回顶层匹配；④ `restore_focus()` 返回值必须处理，禁止静默滑入宽松匹配；⑤ 回退边界明确——已失效 + 顶层校验通过 + 当前焦点归属可确认 → 按预定义回退策略；仍存活但不匹配 → 默认取消。
 - 测试矩阵（8 场景）：顶层不匹配=拒绝注入；顶层句柄为零或 PID 未知=失败关闭；匹配=放行；存活但焦点转移=默认取消（除非另有经测试的产品规则）；已销毁+焦点属已验证目标=按回退策略；句柄被复用=不得对失效身份调 SetFocus；restore_focus 失败=不得静默宽松；恢复期顶层身份变化=中止。纯决策逻辑用单测覆盖；Win32 身份检查用专用测试窗口；禁止向真实桌面发送合成键鼠输入。
 - 关闭证据：修订方案 GPT APPROVE → 实现 + 矩阵单测 + 三门禁（fmt/clippy/test）+ HEAD CI 绿 → v0.1.4 候选 tag 出 Draft → 用户 Draft 安装包真实粘贴回归 + §4 物理核验 → 公开发布。
-- 复核：2026-10-24 GPT 提出契约；下次复核 = 修订案再审。
+- 复核：2026-10-24 午间实施完成（ded749c）；关闭链剩余 = GPT 第四轮复核 → 用户 Draft 真实回归 → §4 物理核验 → 发布。
 
 ### R-02 HWND 生命周期防护
 - 严重度：P1｜首次登记：2026-10-23｜状态：**与 R-01 同一修复任务**｜计划版本：v0.1.4
