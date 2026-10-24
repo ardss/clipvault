@@ -26,12 +26,13 @@
 - 测试 +12（window 5 / injector 3 / commands 4），含真实隐藏 Win32 父子窗口身份取证；cargo test **49/49 绿**（3.3s）、fmt / clippy -D warnings 绿。
 - push main → **CI 5/5 绿**（run 40065856496）+ Pages 绿。
 - 实施回执（diff 摘要/矩阵/CI URL/边界声明）已投 GPT；截至收尾 GPT 未复核（第四轮），不阻塞——tag 本就未获授权。
+- **GPT 第四轮复核（午间自动送达）**：P1-1/P1-2/P1-3 全部 PASS，CI #75/#76 被其独立核实；剩唯一 P1——`handshake_child` 的 Restored 分支未消费归属结果，恢复后焦点再变仍会放行。已按其最小修正落地 commit `91e1f9d`：① Restored 臂改为 `(focus_in_target == Some(child)).then_some(child)`；② 写握手前重验 (HWND, owner pid)，token=`target_lost_before_handshake`；③ Restored 失配独立 token=`focus_moved_after_restore`；④ 回归测试 3 个（attribution=None 取消 / 焦点移至兄弟控件取消 / 自焦点严格路径）。cargo test **51/51 绿**（1.8s）、fmt/clippy 绿、**CI 5/5 绿**（run 40068544841）。增量回执已投（14:15 一条为用户侧代发、内容准确；本会话误发的旧版修订案已由用户更正作废，GPT 确认忽略）。
 
 ### 发版
-否（GPT 明确暂不授权 tag/发布；待用户 Draft 回归 + §4 物理核验后另行走发版轮）。
+否（第四轮裁决明示：修复通过才放行 v0.1.4 候选 tag/Draft；第五轮增量复核待 GPT 给出）。
 
 ### 待办（触发条件见各项）
-- 链路：GPT 第四轮复核 → 用户真实应用粘贴回归（记事本/浏览器输入框/一种原生多控件）→ v0.1.4 候选 Draft → §4 物理核验 → 才可公开发布。
+- 链路：GPT 第五轮增量复核 →（放行后）v0.1.4 候选 tag → Draft → 用户真实应用粘贴回归（记事本/浏览器输入框/一种原生多控件）+ §4 物理核验 → 才可公开发布。
 - GitHub 2FA：用户侧待办（巡检仍走匿名 API）。
 - 依赖升级：留功能窗口。
 - 浏览器死状态教训：ChatGPT 后台标签 evaluate 反复超时，本次靠「唤醒重试 + 副本标签 271 补投 + reload 后草稿恢复」走通；重载恢复的陈旧草稿已清理（防误发）。
