@@ -7,10 +7,11 @@
 ## 2026-10-24 15:10 收尾轮（第五轮复核 + v0.1.4 候选发布，GPT 授权）
 - 15:13 GPT 第五轮增量复核（2m51s，独立读取 Rust CI 日志核验 51 passed/4 ignored，非转抄日志）：**APPROVE，放行 v0.1.4 候选 tag / Draft**；同时钉死边界——注入器最后一道焦点匹配必须保留、不得宣称消除全部竞态、**公开发布仍未授权**。
 - 版本六处同步 0.1.4（package.json / tauri.conf.json / Cargo.toml / Cargo.lock / CHANGELOG.md / App.vue About / docs/index.html 含 ch41-ch44 中英双语注册）→ `release: v0.1.4`（1222a0b）→ 本地三门禁绿（51 passed）→ main CI #82 绿（1m36s）+ Pages #63 绿。
-- 15:29 tag `v0.1.4` 已推 → Release CI #50 运行中；产物 Draft 生成后进入用户验收阶段（见下）。
-- 用户验收清单（GPT 指定，全部通过才可公开发布）：①记事本真实粘贴回归；②浏览器输入框真实粘贴回归；③一种原生多控件应用回归；④RELEASE_CHECKLIST §4 覆盖升级物理核验（旧进程退出/文件替换/新进程启动）；⑤安装包+便携版+SHA256 三资产核对。未通过→继续修，不得先发布后补验收。
+- 15:29 tag `v0.1.4` 已推 → Release CI #50 → **16:05 复核：completed successfully（26 分钟）**。
+- **Draft 实核通过（16:15）**：draft 形态 `untagged-fa08826a95d4202d6119`（经典坑，编辑入口 /releases/edit/untagged-fa08826a95d4202d6119）；资产三件逐字核对 = `ClipVault_0.1.4_x64-setup.exe` + `ClipVault_0.1.4-portable.exe` + `SHA256SUMS.txt`（另有源码包）；Tag v0.1.4 绑定 1222a0b；无 Latest 徽章（v0.1.3 仍为 Latest，符合候选状态）。
+- 用户验收清单（GPT 指定，全部通过才可公开发布）：①记事本真实粘贴回归；②浏览器输入框真实粘贴回归；③一种原生多控件应用回归；④RELEASE_CHECKLIST §4 覆盖升级物理核验（旧进程退出/文件替换/新进程启动）；⑤三资产核对（✅ 已由本会话完成）。未通过→继续修，不得先发布后补验收。
 - 匿名 GitHub API 限额打满（60/60，15:45 重置），CI 观测切换到 github.com Actions 网页（未被 2FA 墙拦截）。
-- 发版：候选阶段（Draft）；公开发布待用户回归证据。
+- 发版：候选阶段（Draft 已就绪）；公开发布待用户回归证据，届时走编辑页发布（draft=false 绑定表单，不用 /edit/<tag> 的 create 模式）。
 
 ## 2026-10-24 13:30 重试轮（F1 投递重试 → 误发旧版已更正，零代码）
 - 13:33 副本标签 271 水合成功；13:50 误将基于第二轮契约的旧版修订案发出（分块写入途中标签假死致状态错乱）；13:55 已向 GPT 发更正——作废旧版，指回午间实施回执（ded749c）作第四轮复核基准。
