@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-10-24
+
+### Fixed
+
+- Focus identity is now verified end-to-end on the paste path: the captured child control handle is validated (alive, same thread, descendant of the target) before `SetFocus`, the actual focus is re-read after the restore, and the live focus attribution must still name the verified child when the injector handshake is written — focus that moved again cancels the paste instead of landing in the wrong control
+- The paste destination (top-level HWND + owner PID) is re-validated immediately before the injector handshake is written, so a window that died or an HWND that was recycled during the restore round-trip can no longer take part in the injection
+- v0.1.3 defect fixed: the injector handshake always carried focus = 0 (the captured child slot was read after the restore had cleared it), so strict child matching silently never engaged; the captured child is now consumed up-front and trusted only after verification
+- Restore outcomes are separated into five states (restored / no captured child / child destroyed / identity mismatch / restore failed); only the documented fallback degrades to top-level matching, everything uncertain fails closed
+
+### Changed
+
+- Cancel reasons are counted with distinct `cv.log` tokens (`focus_moved`, `child_destroyed`, `child_identity_mismatch`, `restore_failed`, `focus_moved_after_restore`, `target_lost_before_handshake`) — handles only, never titles or clipboard content — so false-cancel rates are observable
+- Safety wording stays bounded: common stale/recycled-handle cases are intercepted, but Win32 focus can still change after any check — the injector keeps its final focus match gate and no race-free claim is made
+
 ## [0.1.3] - 2026-10-23
 
 ### Fixed
