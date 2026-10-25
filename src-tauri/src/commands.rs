@@ -202,6 +202,7 @@ mod focus_handshake_tests {
 }
 
 pub(crate) fn show_panel(app: &AppHandle) {
+    win::set_mouse_hook(true);
     if let Some(w) = app.get_webview_window("panel") {
         cvlog!("[cv] panel url: {:?}", w.url());
         let fg = win::get_foreground();
@@ -280,7 +281,13 @@ pub(crate) fn hide_panel(app: &AppHandle) {
     win::PANEL_VISIBLE.store(false, Ordering::SeqCst);
     win::PASTE_TARGET.store(0, Ordering::SeqCst);
     win::PASTE_TARGET_PID.store(0, Ordering::SeqCst);
+    win::set_mouse_hook(false);
 }
+
+// NOTE (audit P2-6, deferred): WebView2 TrySuspend would reclaim ~30-60MB of
+// hidden-panel memory. webview2-com-sys models TrySuspend as async with a
+// COM event handler, so the wrapper needs a callback implementation — logged
+// in the risk pool instead of shipping a handler just for this.
 
 /// Lazily creates the zoom preview window with a fixed, code-defined config —
 /// the frontend never needs the broader create-webview-window permission.
@@ -400,7 +407,8 @@ pub(crate) fn report_error(app: AppHandle, msg: String) {
 
 #[tauri::command]
 pub(crate) fn heartbeat() {
-    cvlog!("[cv] heartbeat received");
+    // deliberately NOT logged: the 5s IPC ping once wrote a line per call and
+    // rotated cv.log within ~12 hours, destroying real diagnostics (audit P2-3)
     let t = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)

@@ -21,6 +21,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cancel reasons are counted with distinct `cv.log` tokens (`focus_moved`, `child_destroyed`, `child_identity_mismatch`, `restore_failed`, `focus_moved_after_restore`, `target_lost_before_handshake`) — handles only, never titles or clipboard content — so false-cancel rates are observable
 - Safety wording stays bounded: common stale/recycled-handle cases are intercepted, but Win32 focus can still change after any check — the injector keeps its final focus match gate and no race-free claim is made
 
+### Security & robustness audit (external review, all items verified then fixed)
+
+- **Images from mainstream apps were silently lost (P1)**: copies written with the registered "PNG" clipboard format (Snipping Tool, browsers, Office) were fed to the DIB decoder, which read the PNG signature as image geometry and dropped every such capture. PNG and DIB payloads now take separate, tested decode paths, and a corrupt PNG falls back to the DIB the same write usually carries
+- The DIB decoder refuses geometry claims that the pixel payload cannot plausibly hold (a 20MB payload declaring 1.6GB no longer triggers a huge zeroed allocation)
+- The single-instance plugin's internal event window (`*-siw`) is hidden at startup — it used to leak into Alt-Tab / Task View; second-instance delivery (by class name) is unaffected
+- Database dedup is keyed on a stable content hash instead of a full-text index that stored every ≤256KB entry twice; existing databases are migrated in place (hash column + backfill, old index dropped)
+- `cv.log` rotates to `cv.log.1` instead of deleting itself, and the 5-second IPC heartbeat no longer writes a log line — diagnostics now survive more than ~12 hours
+- Stored images have a total-size quota (512 MB, oldest unpinned evicted) on top of the entry count limit
+- Single-row delete and history pruning run with `secure_delete`, so deleted clipboard plaintext no longer survives in freed database pages
+- The startup image reconcile scans the filesystem outside the database lock (two-phase); the low-level mouse hook is installed only while the panel is visible (self-healing on each show) instead of being installed once forever with the result discarded
+- Clipboard capture runs on a dedicated worker (latest-wins) instead of inside the listener thread, so a slow capture (settle sleep, image decode) no longer delays the message pump
+
+### Known limitations
+
+- Search matches the stored preview text; full-content search (FTS5) and WebView2 suspend are queued as future work (webview TrySuspend would reclaim ~30–60 MB of hidden-panel memory but needs a COM event-handler wrapper)
+
 ## [0.1.3] - 2026-10-23
 
 ### Fixed

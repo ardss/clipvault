@@ -6,3 +6,5 @@ src-tauri/gen/schemas/
 tests/.artifacts/
 *.log
 .DS_Store
+
+tmp-ux/

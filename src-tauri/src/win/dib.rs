@@ -62,6 +62,16 @@ pub fn dib_to_png(dib: &[u8]) -> Option<(Vec<u8>, u32, u32)> {
         val as u8
     };
     let px = &dib[data_off..];
+    // allocation-bomb guard: the header can claim any (w, h) — only trust it
+    // when the pixel payload could plausibly hold the declared size. A real
+    // 32bpp DIB is ≈ data_off + stride*h bytes, so the declared RGBA size
+    // never exceeds ~1.3× the payload; ×2 leaves room for header/padding
+    // variants. A corrupted or malicious header (20MB data claiming
+    // 20000×20000 = 1.6GB) is rejected before the zeroed allocation below.
+    let declared_rgba = (width as u64) * (h as u64) * 4;
+    if declared_rgba > dib.len() as u64 * 2 {
+        return None;
+    }
     let mut buf = vec![0u8; width as usize * h as usize * 4];
     for y in 0..h as usize {
         let src_y = if top_down { y } else { h as usize - 1 - y };
@@ -92,4 +102,86 @@ pub fn dib_to_png(dib: &[u8]) -> Option<(Vec<u8>, u32, u32)> {
     let mut png = std::io::Cursor::new(Vec::new());
     img.write_to(&mut png, image::ImageFormat::Png).ok()?;
     Some((png.into_inner(), width, h))
+}
+
+/// Exact PNG bytes (the registered "PNG" clipboard format written by Snipping
+/// Tool, browsers and Office) → normalized PNG. This is a SEPARATE decoder —
+/// feeding these bytes to `dib_to_png` would read the PNG signature as DIB
+/// geometry and drop the image silently. Decoding is bounded: clipboard bytes
+/// come from any app, and an unconstrained decode can allocate gigabytes.
+pub fn png_bytes_to_png(png: &[u8]) -> Option<(Vec<u8>, u32, u32)> {
+    if !png.starts_with(&[0x89, 0x50, 0x4E, 0x47]) {
+        return None;
+    }
+    let mut reader = image::ImageReader::new(std::io::Cursor::new(png));
+    reader.set_format(image::ImageFormat::Png);
+    let mut lim = image::Limits::default();
+    lim.max_image_width = Some(20000);
+    lim.max_image_height = Some(20000);
+    reader.limits(lim);
+    let img = reader.decode().ok()?;
+    let rgba = img.to_rgba8();
+    let (w, h) = (rgba.width(), rgba.height());
+    let mut out = std::io::Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgba8(rgba)
+        .write_to(&mut out, image::ImageFormat::Png)
+        .ok()?;
+    Some((out.into_inner(), w, h))
+}
+
+#[cfg(test)]
+mod png_path_tests {
+    use super::*;
+
+    fn solid_png(w: u32, h: u32, px: [u8; 4]) -> Vec<u8> {
+        let img = image::RgbaImage::from_raw(w, h, {
+            let mut v = Vec::new();
+            for _ in 0..(w * h) {
+                v.extend_from_slice(&px);
+            }
+            v
+        })
+        .unwrap();
+        let mut c = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgba8(img)
+            .write_to(&mut c, image::ImageFormat::Png)
+            .unwrap();
+        c.into_inner()
+    }
+
+    /// The P1 regression: "PNG" clipboard bytes must go through the PNG
+    /// decoder — dib_to_png reads the PNG signature as DIB geometry and
+    /// must keep refusing them, so a future refactor can't silently
+    /// reconnect the broken pipeline.
+    #[test]
+    fn png_bytes_decode_via_png_path_and_never_via_dib_path() {
+        let png = solid_png(60, 40, [255, 0, 0, 255]);
+        assert!(png.starts_with(&[0x89, b'P']));
+        let (out, w, h) = png_bytes_to_png(&png).expect("png decoder must accept png bytes");
+        assert_eq!((w, h), (60, 40));
+        let img = image::load_from_memory(&out).unwrap().to_rgba8();
+        assert_eq!(img.get_pixel(5, 5)[0], 255);
+        assert_eq!(dib_to_png(&png), None, "dib decoder must refuse png bytes");
+        assert_eq!(png_bytes_to_png(b"\x89PNG not really"), None);
+    }
+
+    #[test]
+    fn allocation_bomb_headers_are_rejected() {
+        // 20MB-style tiny payload with a huge declared geometry: even inside
+        // the 20000 dimension cap, the payload cannot plausibly hold it
+        let mut dib = Vec::new();
+        dib.extend_from_slice(&40i32.to_le_bytes());
+        dib.extend_from_slice(&19000i32.to_le_bytes()); // width
+        dib.extend_from_slice(&19000i32.to_le_bytes()); // height
+        dib.extend_from_slice(&1i16.to_le_bytes());
+        dib.extend_from_slice(&32i16.to_le_bytes());
+        dib.extend_from_slice(&0i32.to_le_bytes()); // BI_RGB
+        dib.extend_from_slice(&0i32.to_le_bytes());
+        dib.extend_from_slice(&[0u8; 64]); // far less than stride*height
+        assert_eq!(
+            dib_to_png(&dib),
+            None,
+            "declared size must be sanity-checked against payload"
+        );
+    }
 }

@@ -7,15 +7,31 @@ use crate::db;
 use crate::settings::SettingsState;
 use crate::win;
 
-pub(crate) fn save_image(app: &AppHandle, png: &[u8]) -> Option<(String, u32, u32)> {
-    let (bytes, w, h) = win::dib_to_png(png)?;
+/// PNG-format bytes (registered "PNG" clipboard format) → stored PNG.
+/// Separated from the DIB path: feeding these bytes to `dib_to_png` reads the
+/// PNG signature as DIB geometry and silently drops the image (the P1 where
+/// every screenshot/browser/Office copy was lost).
+pub(crate) fn save_image_png(app: &AppHandle, png: &[u8]) -> Option<(String, u32, u32)> {
+    let (bytes, w, h) = win::png_bytes_to_png(png)?;
+    persist_image(app, &bytes, w, h)
+}
+
+/// CF_DIB bytes → RGBA → stored PNG.
+pub(crate) fn save_image_dib(app: &AppHandle, dib: &[u8]) -> Option<(String, u32, u32)> {
+    let (bytes, w, h) = win::dib_to_png(dib)?;
+    persist_image(app, &bytes, w, h)
+}
+
+/// Common persistence: content hash → image file + 256px thumbnail. Callers
+/// have already decoded to normalized PNG bytes.
+fn persist_image(app: &AppHandle, bytes: &[u8], w: u32, h: u32) -> Option<(String, u32, u32)> {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     std::hash::Hash::hash(&bytes, &mut hasher);
     let hash = std::hash::Hasher::finish(&hasher);
     let dir = app.path().app_data_dir().ok()?;
     let path = dir.join("images").join(format!("{hash:016x}.png"));
     if !path.exists() {
-        std::fs::write(&path, &bytes).ok()?;
+        std::fs::write(&path, bytes).ok()?;
     }
     // 256px thumbnail: the panel lists load this instead of the full image.
     // Decode limits guard against decompression bombs — clipboard bytes can
@@ -79,7 +95,10 @@ pub(crate) fn handle_clipboard_change(app: &AppHandle) {
         Html(String, Vec<u8>),
         Text(String),
         BigText(String, std::path::PathBuf),
-        Image(Vec<u8>),
+        /// Byte-exact PNG (registered "PNG" format).
+        ImagePng(Vec<u8>),
+        /// CF_DIB payload (GDI-era writers).
+        ImageDib(Vec<u8>),
     }
     let st = app.state::<db::Db>();
     let lock = || st.0.lock().unwrap_or_else(|p| p.into_inner());
@@ -158,17 +177,17 @@ pub(crate) fn handle_clipboard_change(app: &AppHandle) {
             }
         } else if let Some(png) = win::read_clipboard_png_raw() {
             // Snipping Tool / browsers / Office write exact "PNG" bytes —
-            // no DIB decoding involved
+            // decoded by the PNG path (save_image_png), never as a DIB
             cvlog!("[cv] png format read: {} bytes", png.len());
             if png.len() <= 20 * 1024 * 1024 {
-                Some(Incoming::Image(png))
+                Some(Incoming::ImagePng(png))
             } else {
                 None
             }
         } else if let Some(dib) = win::read_clipboard_dib_vec() {
             win::log_clipboard_formats();
             if dib.len() <= 20 * 1024 * 1024 {
-                Some(Incoming::Image(dib))
+                Some(Incoming::ImageDib(dib))
             } else {
                 None
             }
@@ -177,12 +196,21 @@ pub(crate) fn handle_clipboard_change(app: &AppHandle) {
         }
     };
     let mut captured = false;
+    let just_captured_image = matches!(
+        &incoming,
+        Some(Incoming::ImagePng(_)) | Some(Incoming::ImageDib(_))
+    );
     if let Some(inc) = incoming {
         // image decode (thumbnail) also happens outside the lock
-        let saved = if let Incoming::Image(bytes) = &inc {
-            save_image(app, bytes)
-        } else {
-            None
+        let saved = match &inc {
+            Incoming::ImagePng(bytes) => save_image_png(app, bytes).or_else(|| {
+                // corrupt "PNG" payload — try the DIB the same clipboard write
+                // usually carries; if that is gone/invalid too, the copy is lost
+                let dib = win::read_clipboard_dib_vec()?;
+                save_image_dib(app, &dib)
+            }),
+            Incoming::ImageDib(dib) => save_image_dib(app, dib),
+            _ => None,
         };
         let conn = lock();
         match inc {
@@ -199,7 +227,7 @@ pub(crate) fn handle_clipboard_change(app: &AppHandle) {
                     Err(e) => cvlog!("[cv] big text upsert ERR: {e}"),
                 }
             }
-            Incoming::Image(_) => {
+            Incoming::ImagePng(_) | Incoming::ImageDib(_) => {
                 if let Some((path, w, h)) = saved {
                     captured = db::upsert_image(&conn, &path, w, h).is_ok();
                 }
@@ -208,14 +236,76 @@ pub(crate) fn handle_clipboard_change(app: &AppHandle) {
         drop(conn);
     }
     if captured {
-        let conn = lock();
-        if let Ok(victims) = db::enforce_limit(&conn, limit) {
-            // remove image files of evicted rows (thumbs + oversized-text side files too)
-            for (img, txt) in victims {
-                db::remove_clip_files(img.as_deref(), txt.as_deref());
+        {
+            let conn = lock();
+            if let Ok(victims) = db::enforce_limit(&conn, limit) {
+                // remove image files of evicted rows (thumbs + oversized-text side files too)
+                for (img, txt) in victims {
+                    db::remove_clip_files(img.as_deref(), txt.as_deref());
+                }
             }
         }
-        drop(conn);
+        // total image quota: entry count alone doesn't bound disk usage
+        // (5000 × 20MB = 100GB). File stats run outside the db lock; the row
+        // delete re-reads paths inside it; file removal is outside again.
+        if just_captured_image {
+            const IMAGE_TOTAL_QUOTA: u64 = 512 * 1024 * 1024;
+            if let Ok(dir) = app.path().app_data_dir() {
+                let rows = {
+                    let conn = lock();
+                    db::image_rows_oldest_first(&conn).unwrap_or_default()
+                };
+                let size_of = |p: &str| -> u64 {
+                    let mut n = std::fs::metadata(p).map(|m| m.len()).unwrap_or(0);
+                    if let Some(stem) = std::path::Path::new(p).file_stem() {
+                        n += std::fs::metadata(
+                            dir.join("images")
+                                .join(format!("{}_t.png", stem.to_string_lossy())),
+                        )
+                        .map(|m| m.len())
+                        .unwrap_or(0);
+                    }
+                    n
+                };
+                let mut total: u64 = 0;
+                let mut unpinned: Vec<(i64, String, u64)> = Vec::new();
+                for (id, path, pinned) in &rows {
+                    let sz = path.as_deref().map(size_of).unwrap_or(0);
+                    total += sz;
+                    if !pinned {
+                        unpinned.push((*id, path.clone().unwrap_or_default(), sz));
+                    }
+                }
+                if total > IMAGE_TOTAL_QUOTA {
+                    let mut evict: Vec<i64> = Vec::new();
+                    for (id, _, sz) in unpinned {
+                        if total <= IMAGE_TOTAL_QUOTA {
+                            break;
+                        }
+                        evict.push(id);
+                        total = total.saturating_sub(sz);
+                    }
+                    if !evict.is_empty() {
+                        let evicted: Vec<db::EvictedFiles> = {
+                            let conn = lock();
+                            db::delete_image_rows(&conn, &evict).unwrap_or_default()
+                        };
+                        let (imgs, txts): (Vec<_>, Vec<_>) = evicted.into_iter().unzip();
+                        for p in imgs.into_iter().flatten() {
+                            db::remove_clip_files(Some(&p), None);
+                        }
+                        for p in txts.into_iter().flatten() {
+                            db::remove_clip_files(None, Some(&p));
+                        }
+                        cvlog!(
+                            "[cv] image quota: evicted {} oldest rows over the {} MB cap",
+                            evict.len(),
+                            IMAGE_TOTAL_QUOTA / 1024 / 1024
+                        );
+                    }
+                }
+            }
+        }
         let _ = app.emit("clips-changed", ());
     }
 }

@@ -79,15 +79,41 @@ fn setup_schema(conn: &Connection) -> Result<(), String> {
         conn.execute_batch("ALTER TABLE clips ADD COLUMN text_path TEXT;")
             .map_err(|e| e.to_string())?;
     }
-    // dedup lookups run on EVERY capture — without these they are full table
-    // scans over inline content (up to 256KB per row): O(n) per copy
+    if !has_col("content_hash") {
+        conn.execute_batch("ALTER TABLE clips ADD COLUMN content_hash INTEGER;")
+            .map_err(|e| e.to_string())?;
+        // backfill existing rows: the hash is the dedup lookup key
+        let rows: Vec<(i64, String)> = {
+            let mut stmt = conn
+                .prepare("SELECT id, content FROM clips WHERE content IS NOT NULL")
+                .map_err(|e| e.to_string())?;
+            let rows = stmt
+                .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))
+                .map_err(|e| e.to_string())?;
+            rows.collect::<Result<Vec<_>, _>>()
+                .map_err(|e| e.to_string())?
+        };
+        for (id, content) in rows {
+            conn.execute(
+                "UPDATE clips SET content_hash=?2 WHERE id=?1",
+                rusqlite::params![id, content_hash(&content)],
+            )
+            .map_err(|e| e.to_string())?;
+        }
+    }
+    // dedup lookups run on EVERY capture — indexed on a stable 64-bit content
+    // hash, not the full text: storing every ≤256KB content in the index
+    // doubled the db size (audit P2-2). Exact-content compare still guards
+    // against hash collisions. Other path columns are short — full indexes.
     conn.execute_batch(
-        "CREATE INDEX IF NOT EXISTS idx_clips_content ON clips(content) WHERE content IS NOT NULL;
+        "CREATE INDEX IF NOT EXISTS idx_clips_content_hash ON clips(content_hash) WHERE content_hash IS NOT NULL;
          CREATE INDEX IF NOT EXISTS idx_clips_image_path ON clips(image_path) WHERE image_path IS NOT NULL;
          CREATE INDEX IF NOT EXISTS idx_clips_text_path ON clips(text_path) WHERE text_path IS NOT NULL;
          CREATE INDEX IF NOT EXISTS idx_clips_files ON clips(files) WHERE files IS NOT NULL;",
     )
     .map_err(|e| e.to_string())?;
+    // migration: drop the old full-text index (if upgrading) after backfill
+    let _ = conn.execute_batch("DROP INDEX IF EXISTS idx_clips_content;");
     // silent btree corruption passes DDL — verify before serving queries
     let ok = conn
         .query_row("PRAGMA quick_check", [], |r| r.get::<_, String>(0))
@@ -198,6 +224,18 @@ pub fn list(conn: &Connection, filter: &str, query: &str) -> Result<Vec<Clip>, S
     Ok(out)
 }
 
+/// Stable cross-process 64-bit content hash (FNV-1a) — the dedup lookup key.
+/// DefaultHasher is NOT stable across processes (random per-process keys).
+/// Exact-content compare still guards against collisions.
+pub(crate) fn content_hash(s: &str) -> i64 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in s.as_bytes() {
+        hash ^= u64::from(*b);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash as i64
+}
+
 pub fn upsert_text(conn: &Connection, content: &str) -> Result<Option<i64>, String> {
     let mut preview: String = content.chars().take(300).collect();
     if content.len() > 300 {
@@ -208,16 +246,28 @@ pub fn upsert_text(conn: &Connection, content: &str) -> Result<Option<i64>, Stri
     }
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
     // same content may already exist as 'text' or as 'html' (rich copy) —
-    // user-visible rule: one entry per unique content
-    if let Some(id) = tx
-        .query_row(
-            "SELECT id FROM clips WHERE content=?1 AND kind IN ('text','html')",
-            [content],
-            |r| r.get::<_, i64>(0),
-        )
-        .map(Some)
-        .unwrap_or(None)
-    {
+    // user-visible rule: one entry per unique content. The hash narrows the
+    // lookup (full-text index removed — it doubled db size); the exact
+    // compare below rules out hash collisions.
+    let hash = content_hash(content);
+    let dup: Option<i64> = {
+        let mut stmt = tx
+            .prepare(
+                "SELECT id, content FROM clips WHERE content_hash=?1 AND kind IN ('text','html')",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([hash], |r| {
+                Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?))
+            })
+            .map_err(|e| e.to_string())?;
+        let found = rows
+            .flatten()
+            .find(|(_, c)| c.as_str() == content)
+            .map(|(id, _)| id);
+        found
+    };
+    if let Some(id) = dup {
         tx.execute(
             "UPDATE clips SET use_count=use_count+1, created_at=?2 WHERE id=?1",
             rusqlite::params![id, now()],
@@ -227,8 +277,8 @@ pub fn upsert_text(conn: &Connection, content: &str) -> Result<Option<i64>, Stri
         return Ok(Some(id));
     }
     tx.execute(
-        "INSERT INTO clips(kind, content, preview, pinned, use_count, created_at) VALUES('text',?1,?2,0,1,?3)",
-        rusqlite::params![content, preview, now()],
+        "INSERT INTO clips(kind, content, content_hash, preview, pinned, use_count, created_at) VALUES('text',?1,?2,?3,0,1,?4)",
+        rusqlite::params![content, hash, preview, now()],
     )
     .map_err(|e| e.to_string())?;
     let id = tx.last_insert_rowid();
@@ -245,6 +295,9 @@ pub fn enforce_limit(conn: &Connection, max: i64) -> Result<Vec<EvictedFiles>, S
     if max <= 0 {
         return Ok(Vec::new());
     }
+    // evicted clipboard content must not survive on disk: zero the deleted
+    // pages like clear_history does ("cleared means gone" applies to pruning)
+    let _ = conn.pragma_update(None, "secure_delete", true);
     // find evicted rows (oldest unpinned beyond the limit), collect their image
     // and oversized-text side files, then delete the rows — one transaction so
     // a crash can't orphan files for rows that still exist (or vice versa)
@@ -273,6 +326,7 @@ pub fn enforce_limit(conn: &Connection, max: i64) -> Result<Vec<EvictedFiles>, S
     )
     .map_err(|e| e.to_string())?;
     tx.commit().map_err(|e| e.to_string())?;
+    let _ = conn.pragma_update(None, "secure_delete", false);
     Ok(victims)
 }
 
@@ -377,8 +431,11 @@ pub fn clear_all(conn: &Connection) -> Result<Vec<EvictedFiles>, String> {
 }
 
 /// Deletes a clip row and its on-disk files: the PNG, its `_t.png` thumbnail
-/// and, for oversized text entries, the full-text side file.
+/// and, for oversized text entries, the full-text side file. secure_delete is
+/// enabled for the statement so the row's plaintext does not survive in freed
+/// pages (single delete previously left it recoverable — audit P3).
 pub fn delete(conn: &Connection, id: i64) -> Result<(), String> {
+    let _ = conn.pragma_update(None, "secure_delete", true);
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
     let (image_path, text_path): (Option<String>, Option<String>) = tx
         .query_row(
@@ -395,8 +452,74 @@ pub fn delete(conn: &Connection, id: i64) -> Result<(), String> {
     tx.execute("DELETE FROM clips WHERE id=?1", [id])
         .map_err(|e| e.to_string())?;
     tx.commit().map_err(|e| e.to_string())?;
+    let _ = conn.pragma_update(None, "secure_delete", false);
     remove_clip_files(image_path.as_deref(), text_path.as_deref());
     Ok(())
+}
+
+/// All image rows oldest-first: (id, image_path, pinned). Pinned rows are
+/// never evicted but still count toward the total image quota.
+pub fn image_rows_oldest_first(
+    conn: &Connection,
+) -> Result<Vec<(i64, Option<String>, bool)>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, image_path, pinned FROM clips WHERE kind='image' ORDER BY created_at ASC",
+        )
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, Option<String>>(1)?,
+                r.get::<_, i64>(2)? != 0,
+            ))
+        })
+        .map_err(|e| e.to_string())?;
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())
+}
+
+/// Deletes image rows by id, returning the files owned by each (removed by
+/// the caller outside the db lock).
+pub fn delete_image_rows(conn: &Connection, ids: &[i64]) -> Result<Vec<EvictedFiles>, String> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    let mut victims = Vec::new();
+    {
+        let mut stmt = tx
+            .prepare("SELECT image_path, text_path FROM clips WHERE id=?1 AND pinned=0")
+            .map_err(|e| e.to_string())?;
+        for id in ids {
+            let v = stmt
+                .query_row([id], |r| {
+                    Ok((
+                        r.get::<_, Option<String>>(0)?,
+                        r.get::<_, Option<String>>(1)?,
+                    ))
+                })
+                .unwrap_or((None, None));
+            victims.push(v);
+        }
+    }
+    // ids come from our own query (i64) — string building is injection-safe
+    let list = ids
+        .iter()
+        .map(|i| i.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+    tx.execute(
+        &format!(
+            "DELETE FROM clips WHERE id IN (
+               SELECT id FROM clips WHERE pinned=0 AND id IN ({list}))"
+        ),
+        [],
+    )
+    .map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(victims)
 }
 
 /// Removes an image, its `_t.png` thumbnail and an oversized-text side file,
@@ -593,15 +716,26 @@ pub fn upsert_html(conn: &Connection, plain: &str, html: &[u8]) -> Result<Option
         preview.push('…');
     }
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
-    // a plain-text entry with the same content gets upgraded to rich text
-    let dup: Option<i64> = tx
-        .query_row(
-            "SELECT id FROM clips WHERE content=?1 AND kind IN ('text','html')",
-            [plain],
-            |r| r.get::<_, i64>(0),
-        )
-        .map(Some)
-        .unwrap_or(None);
+    // a plain-text entry with the same content gets upgraded to rich text;
+    // hash lookup + exact compare (see upsert_text)
+    let hash = content_hash(plain);
+    let dup: Option<i64> = {
+        let mut stmt = tx
+            .prepare(
+                "SELECT id, content FROM clips WHERE content_hash=?1 AND kind IN ('text','html')",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([hash], |r| {
+                Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?))
+            })
+            .map_err(|e| e.to_string())?;
+        let found = rows
+            .flatten()
+            .find(|(_, c)| c.as_str() == plain)
+            .map(|(id, _)| id);
+        found
+    };
     if let Some(id) = dup {
         tx.execute(
             "UPDATE clips SET kind='html', use_count=use_count+1, created_at=?2, html=?3 WHERE id=?1",
@@ -612,8 +746,8 @@ pub fn upsert_html(conn: &Connection, plain: &str, html: &[u8]) -> Result<Option
         return Ok(Some(id));
     }
     tx.execute(
-        "INSERT INTO clips(kind, content, html, preview, use_count, created_at) VALUES('html',?1,?2,?3,1,?4)",
-        rusqlite::params![plain, html, preview, now()],
+        "INSERT INTO clips(kind, content, content_hash, html, preview, use_count, created_at) VALUES('html',?1,?2,?3,?4,1,?5)",
+        rusqlite::params![plain, hash, html, preview, now()],
     )
     .map_err(|e| e.to_string())?;
     let id = tx.last_insert_rowid();
@@ -656,6 +790,7 @@ mod stress_tests {
                id INTEGER PRIMARY KEY AUTOINCREMENT,
                kind TEXT NOT NULL,
                content TEXT,
+               content_hash INTEGER,
                image_path TEXT,
                html BLOB,
                files TEXT,
@@ -679,9 +814,16 @@ mod stress_tests {
     fn bulk_insert_text(conn: &Connection, n: usize, base_ms: i64) {
         conn.execute_batch("BEGIN").unwrap();
         for i in 0..n {
+            // production rows all carry content_hash (written by upsert_text
+            // or backfilled by migration) — simulate that faithfully
             conn.execute(
-                "INSERT INTO clips(kind, content, preview, pinned, use_count, created_at) VALUES('text',?1,?2,0,1,?3)",
-                rusqlite::params![format!("stress text {i}"), format!("stress text {i}"), base_ms + i as i64],
+                "INSERT INTO clips(kind, content, content_hash, preview, pinned, use_count, created_at) VALUES('text',?1,?2,?3,0,1,?4)",
+                rusqlite::params![
+                    format!("stress text {i}"),
+                    content_hash(&format!("stress text {i}")),
+                    format!("stress text {i}"),
+                    base_ms + i as i64
+                ],
             )
             .unwrap();
         }
@@ -864,6 +1006,7 @@ mod stress_tests {
                id INTEGER PRIMARY KEY AUTOINCREMENT,
                kind TEXT NOT NULL,
                content TEXT,
+               content_hash INTEGER,
                image_path TEXT,
                html BLOB,
                files TEXT,
@@ -1624,7 +1767,7 @@ mod dedup_tests {
         conn.execute_batch(
             "CREATE TABLE clips(
                id INTEGER PRIMARY KEY AUTOINCREMENT,
-               kind TEXT NOT NULL, content TEXT, image_path TEXT, html BLOB,
+               kind TEXT NOT NULL, content TEXT, content_hash INTEGER, image_path TEXT, html BLOB,
                files TEXT, preview TEXT NOT NULL,
                pinned INTEGER NOT NULL DEFAULT 0,
                use_count INTEGER NOT NULL DEFAULT 0,

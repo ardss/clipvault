@@ -248,6 +248,10 @@ const zoomData = ref(null)
 let latestZoomPayload = null
 let zoomRequestId = 0
 let hideTimer = null
+// idle reaper for the zoom window (audit P2-6): it costs ~50MB parked all
+// day; 10 minutes without a hover closes (destroys) it — ensureZoomWin
+// recreates it idempotently on the next hover
+let lastZoomUse = 0
 function cancelHide() { clearTimeout(hideTimer) }
 // closing the popup is owned by the Rust cursor watchdog; the frontend
 // never hides it on hover events (event-timing races caused false closes)
@@ -288,6 +292,7 @@ async function openZoom(c, e) {
   if (requestId !== zoomRequestId) return
   await zw.setPosition(new LogicalPosition(x, top))
   await zw.show()
+  lastZoomUse = Date.now()
 }
 // the zoom window costs ~50MB sitting hidden all day — created on first
 // hover via a Rust command (fixed config; no webview-creation permission
@@ -421,6 +426,13 @@ onMounted(async () => {
       beat()
     }, 5000)
     beat()
+    // zoom-window idle reaper (10 min without use → destroy, ~50MB back)
+    setInterval(() => {
+      if (!lastZoomUse || Date.now() - lastZoomUse < 10 * 60 * 1000) return
+      const zw = WebviewWindow.getByLabel('zoom')
+      if (zw) zw.close().catch(() => {})
+      lastZoomUse = 0
+    }, 60 * 1000)
   }
 })
 onBeforeUnmount(() => {

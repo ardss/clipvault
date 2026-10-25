@@ -14,10 +14,14 @@ pub fn cvlog_write(args: std::fmt::Arguments) {
         .map(|d| std::path::Path::new(&d).join("com.clipvault.app"))
         .unwrap_or_else(|_| std::path::PathBuf::from("."));
     let path = dir.join("cv.log");
-    // cap: delete and start fresh rather than growing forever
+    // cap: rotate to cv.log.1 (one previous session is kept for forensics —
+    // heartbeat noise once filled the log within hours and the delete-and-
+    // restart cap destroyed yesterday's evidence on the first overflow)
     if let Ok(meta) = std::fs::metadata(&path) {
         if meta.len() > 256 * 1024 {
-            let _ = std::fs::remove_file(&path);
+            let rotated = dir.join("cv.log.1");
+            let _ = std::fs::remove_file(&rotated);
+            let _ = std::fs::rename(&path, &rotated);
         }
     }
     if let Ok(mut f) = std::fs::OpenOptions::new()
@@ -73,6 +77,27 @@ mod cvlog_tests {
             !txt.contains('x'),
             "old oversized content must be gone, not appended to"
         );
+        // rotation keeps one previous log for forensics
+        let rotated = dir.join("com.clipvault.app").join("cv.log.1");
+        assert!(rotated.exists(), "cv.log.1 must exist after rotation");
+        assert!(
+            std::fs::read_to_string(&rotated).unwrap().contains('x'),
+            "rotated log must hold the old content"
+        );
+        // a second overflow rotates again: the oversized log ('y') moves to
+        // cv.log.1, the new marker lands in a fresh cv.log (bounded disk)
+        std::fs::write(&log, vec![b'y'; 300 * 1024]).unwrap();
+        cvlog_write(format_args!("second marker {}", std::process::id()));
+        let rotated2 = std::fs::read_to_string(&rotated).unwrap();
+        assert!(
+            rotated2.contains('y') && !rotated2.contains("second marker"),
+            "cv.log.1 must hold the rotated oversized log"
+        );
+        let fresh = std::fs::read_to_string(&log).unwrap();
+        assert!(
+            fresh.contains("second marker") && !fresh.contains('y'),
+            "cv.log must start fresh with the new entry"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
@@ -123,6 +148,7 @@ pub fn run() {
         .setup(|app| {
             // first paint order: hotkey + tray before anything heavy — the
             // user's first Alt+V should not wait on db migrations
+            win::hide_single_instance_window();
             let settings = load_settings(app.handle());
             apply_settings(app.handle(), &settings);
             build_tray(app)?;
@@ -130,7 +156,8 @@ pub fn run() {
             app.manage(SettingsState(Mutex::new(settings)));
             let handle = app.handle().clone();
             win::spawn_clipboard_listener(move || capture::handle_clipboard_change(&handle));
-            win::install_mouse_hook();
+            // the outside-click hook is installed per panel-show (self-healing,
+            // zero cost while hidden) — nothing to install at boot
             let h3 = app.handle().clone();
             // this tick also consumes the outside-click flag (one worker
             // thread instead of two)
@@ -194,6 +221,10 @@ fn spawn_heartbeat_watchdog(h: tauri::AppHandle) {
 /// Reconcile the images dir against the DB once at startup: delete orphan
 /// files no row references anymore, and purge rows whose image file is gone
 /// (they would otherwise show broken previews forever).
+///
+/// Two-phase (audit P3): the DB lock is held only while pulling the
+/// referenced-path set — the filesystem sweep (read_dir + stat per file) and
+/// the existence checks over history rows run outside it.
 fn spawn_images_reconcile(h: tauri::AppHandle) {
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_secs(20));
@@ -203,21 +234,47 @@ fn spawn_images_reconcile(h: tauri::AppHandle) {
         let Some(st) = h.try_state::<db::Db>() else {
             return;
         };
-        let conn = st.0.lock().unwrap_or_else(|p| p.into_inner());
-        let (removed, missing) = reconcile_images(&conn, &dir);
+        // phase 1 — inside the lock: the referenced-path set
+        let referenced: std::collections::HashSet<String> = {
+            let conn = st.0.lock().unwrap_or_else(|p| p.into_inner());
+            let mut out = std::collections::HashSet::new();
+            if let Ok(mut stmt) =
+                conn.prepare("SELECT image_path FROM clips WHERE image_path IS NOT NULL")
+            {
+                if let Ok(rows) = stmt.query_map([], |r| r.get::<_, String>(0)) {
+                    for p in rows.flatten() {
+                        out.insert(p.clone());
+                        if let Some(stem) = std::path::Path::new(&p).file_stem() {
+                            out.insert(format!("{}_t.png", stem.to_string_lossy()));
+                        }
+                    }
+                }
+            }
+            out
+        }; // lock released — phases 2/3 only touch the filesystem
+        let orphans = reconcile_scan_orphans(&dir, &referenced);
+        let missing = reconcile_count_missing(&dir, &referenced);
+        let mut removed = 0;
+        for p in orphans {
+            if std::fs::remove_file(&p).is_ok() {
+                removed += 1;
+            }
+        }
         if removed > 0 || missing > 0 {
             cvlog!("[cv] image reconcile: {removed} aged orphans removed, {missing} missing files retained in history");
         }
     });
 }
 
-/// Capture writes the image before its DB row, outside the DB lock. A startup
-/// sweep can see that in-flight file as an orphan; never delete fresh files.
-/// Missing images may be temporarily unavailable (backup/restore, AV scan),
-/// so preserve the history row and let the UI display its expired state.
-fn reconcile_images(conn: &rusqlite::Connection, dir: &std::path::Path) -> (usize, usize) {
+/// Phase 2 (no lock): list image files older than the orphan grace that no
+/// row references. A capture in flight writes its file before its DB row, so
+/// fresh files (< 7 days) are never candidates.
+fn reconcile_scan_orphans(
+    dir: &std::path::Path,
+    referenced: &std::collections::HashSet<String>,
+) -> Vec<std::path::PathBuf> {
     const ORPHAN_GRACE: Duration = Duration::from_secs(7 * 24 * 60 * 60);
-    let mut removed = 0;
+    let mut orphans = Vec::new();
     if let Ok(entries) = std::fs::read_dir(dir) {
         for e in entries.flatten() {
             let p = e.path();
@@ -234,35 +291,48 @@ fn reconcile_images(conn: &rusqlite::Connection, dir: &std::path::Path) -> (usiz
                 continue;
             }
             let s = p.to_string_lossy().into_owned();
-            // On a DB error, never treat an image as unreferenced.
-            let referenced = conn.query_row(
-                "SELECT count(*) FROM clips WHERE image_path=?1 OR replace(image_path, '.png', '_t.png')=?1",
-                rusqlite::params![s, s],
-                |r| r.get::<_, i64>(0),
-            );
-            if matches!(referenced, Ok(0)) && std::fs::remove_file(&p).is_ok() {
-                removed += 1;
+            if !referenced.contains(&s) {
+                orphans.push(p);
             }
         }
     }
-    let mut missing = 0;
-    if let Ok(mut stmt) =
-        conn.prepare("SELECT image_path FROM clips WHERE kind='image' AND image_path IS NOT NULL")
-    {
-        if let Ok(rows) = stmt.query_map([], |r| r.get::<_, String>(0)) {
-            for p in rows.flatten() {
-                if !std::path::Path::new(&p).exists() {
-                    missing += 1;
-                }
-            }
-        }
-    }
-    (removed, missing)
+    orphans
+}
+
+/// Phase 2b (no lock): history rows whose image file is currently absent.
+fn reconcile_count_missing(
+    dir: &std::path::Path,
+    referenced: &std::collections::HashSet<String>,
+) -> usize {
+    let _ = dir;
+    referenced
+        .iter()
+        .filter(|p| !p.ends_with("_t.png") && !std::path::Path::new(p.as_str()).exists())
+        .count()
 }
 
 #[cfg(test)]
 mod image_reconcile_tests {
     use super::*;
+    use std::collections::HashSet;
+
+    fn referenced_set(conn: &rusqlite::Connection) -> HashSet<String> {
+        let mut out = HashSet::new();
+        let mut stmt = conn
+            .prepare("SELECT image_path FROM clips WHERE image_path IS NOT NULL")
+            .unwrap();
+        for p in stmt
+            .query_map([], |r| r.get::<_, String>(0))
+            .unwrap()
+            .flatten()
+        {
+            out.insert(p.clone());
+            if let Some(stem) = std::path::Path::new(&p).file_stem() {
+                out.insert(format!("{}_t.png", stem.to_string_lossy()));
+            }
+        }
+        out
+    }
 
     #[test]
     fn startup_keeps_inflight_image_and_missing_history_row() {
@@ -288,17 +358,45 @@ mod image_reconcile_tests {
             [missing.to_string_lossy().as_ref()],
         )
         .unwrap();
-        let (removed, absent) = reconcile_images(&conn, &dir);
-        assert_eq!((removed, absent), (0, 1));
-        assert!(
-            fresh.exists(),
-            "fresh image awaiting DB insert must survive"
-        );
+        let referenced = referenced_set(&conn);
+        // fresh file: not aged, never a candidate even though unreferenced
+        let orphans = reconcile_scan_orphans(&dir, &referenced);
+        assert!(orphans.is_empty(), "fresh in-flight image must survive");
+        let absent = reconcile_count_missing(&dir, &referenced);
+        assert_eq!(absent, 1);
         assert_eq!(
             conn.query_row("SELECT count(*) FROM clips", [], |r| r.get::<_, i64>(0))
                 .unwrap(),
             1,
             "missing image must not silently erase its clipboard history"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn aged_unreferenced_file_is_a_candidate() {
+        use std::time::Duration;
+        let dir = std::env::temp_dir().join(format!(
+            "cv-reconcile-aged-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let old = dir.join("old-orphan.png");
+        std::fs::write(&old, b"old").unwrap();
+        let older = old.metadata().unwrap().modified().unwrap();
+        let back = older - Duration::from_secs(8 * 24 * 60 * 60);
+        let f = std::fs::File::options().write(true).open(&old).unwrap();
+        f.set_modified(back).unwrap();
+        drop(f);
+        let orphans = reconcile_scan_orphans(&dir, &HashSet::new());
+        assert_eq!(
+            orphans.len(),
+            1,
+            "aged unreferenced file must be a candidate"
         );
         std::fs::remove_dir_all(dir).unwrap();
     }

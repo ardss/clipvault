@@ -42,7 +42,7 @@ pub use clipboard::{
     clipboard_marked_sensitive, is_self_write, read_clipboard_dib_vec, read_clipboard_text,
     write_clipboard_png, write_clipboard_text,
 };
-pub use dib::dib_to_png;
+pub use dib::{dib_to_png, png_bytes_to_png};
 pub use formats::{
     log_clipboard_formats, read_clipboard_files, read_clipboard_html, read_clipboard_png_raw,
     write_clipboard_files, write_clipboard_html,
@@ -68,6 +68,32 @@ unsafe extern "system" fn listener_wndproc(
 }
 
 pub fn spawn_clipboard_listener<F: FnMut() + Send + 'static>(mut on_change: F) {
+    // Capture used to run ON the listener thread (including its 120ms settle
+    // sleep and image decode): a slow capture delayed the message pump, and a
+    // burst of copies queued up serially. Now the listener thread only flags
+    // "dirty" and a worker consumes it latest-wins — the clipboard is a
+    // state, not an event queue, so skipping straight to the newest content
+    // is the correct drain (audit P3).
+    let pending = std::sync::Arc::new((StdMutex::new(false), std::sync::Condvar::new()));
+    let worker_pending = pending.clone();
+    std::thread::spawn(move || {
+        let (lock, cv) = &*worker_pending;
+        loop {
+            {
+                let mut flag = lock.lock().unwrap_or_else(|p| p.into_inner());
+                while !*flag {
+                    flag = cv.wait(flag).unwrap_or_else(|p| p.into_inner());
+                }
+                *flag = false;
+            }
+            // settle: writers put formats on the clipboard in steps
+            std::thread::sleep(std::time::Duration::from_millis(120));
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(&mut on_change));
+            if result.is_err() {
+                cvlog!("[cv] capture handler panicked; worker continues");
+            }
+        }
+    });
     std::thread::spawn(move || unsafe {
         cvlog!("[cv] listener thread started");
         let Ok(hmod) = GetModuleHandleW(None) else {
@@ -118,20 +144,48 @@ pub fn spawn_clipboard_listener<F: FnMut() + Send + 'static>(mut on_change: F) {
             // seed whatever is already on the clipboard: copies made before
             // the listener registered would otherwise be silently missed
             std::thread::sleep(std::time::Duration::from_millis(400));
-            on_change();
+            {
+                let (lock, cv) = &*pending;
+                let mut flag = lock.lock().unwrap_or_else(|p| p.into_inner());
+                *flag = true;
+                cv.notify_one();
+            }
         }
         let mut msg = MSG::default();
         while GetMessageW(&mut msg, None, 0, 0).as_bool() {
             if msg.message == WM_CLIPBOARDUPDATE {
-                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(&mut on_change));
-                if result.is_err() {
-                    cvlog!("[cv] listener handler panicked; thread continues");
-                }
+                let (lock, cv) = &*pending;
+                let mut flag = lock.lock().unwrap_or_else(|p| p.into_inner());
+                *flag = true;
+                cv.notify_one();
             }
             let _ = TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
     });
+}
+
+// ---------- single-instance event window (audit P2-1) ----------
+
+/// tauri-plugin-single-instance creates its internal event window with the
+/// title "<identifier>-siw" and force-shows it — it leaks into Alt-Tab and
+/// Task View. Hiding it is lossless: second instances find it by class name
+/// ("<identifier>-sic") to deliver WM_COPYDATA, which works regardless of
+/// visibility.
+pub fn hide_single_instance_window() {
+    unsafe {
+        let class: Vec<u16> = "com.clipvault.app-sic\0".encode_utf16().collect();
+        let name: Vec<u16> = "com.clipvault.app-siw\0".encode_utf16().collect();
+        match FindWindowW(PCWSTR(class.as_ptr()), PCWSTR(name.as_ptr())) {
+            Ok(h) if !h.0.is_null() => {
+                let _ = ShowWindow(h, SW_HIDE);
+                cvlog!("[cv] single-instance event window hidden");
+            }
+            _ => {
+                cvlog!("[cv] single-instance event window not found (plugin timing?)");
+            }
+        }
+    }
 }
 
 // ---------- low-level mouse hook (click outside hides panel) ----------
@@ -156,16 +210,75 @@ unsafe extern "system" fn mouse_proc(n_code: i32, w_param: WPARAM, l_param: LPAR
     CallNextHookEx(None, n_code, w_param, l_param)
 }
 
-pub fn install_mouse_hook() {
-    std::thread::spawn(|| unsafe {
-        let hook = SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_proc), None, 0);
-        let _ = hook;
-        let mut msg = MSG::default();
-        while GetMessageW(&mut msg, None, 0, 0).as_bool() {
-            let _ = TranslateMessage(&msg);
-            DispatchMessageW(&msg);
+static MOUSE_HOOK_DESIRED: AtomicBool = AtomicBool::new(false);
+static MOUSE_HOOK_CMD: StdMutex<Option<std::sync::mpsc::Sender<bool>>> = StdMutex::new(None);
+static MOUSE_HOOK_THREAD: AtomicBool = AtomicBool::new(false);
+
+/// The low-level mouse hook is only needed while the panel is visible —
+/// installing on show and uninstalling on hide (a) removes a permanent
+/// global hook from the system and (b) self-heals: a hook silently removed
+/// by the system (low-level timeout) is reinstalled on the next show. The
+/// previous install-once-forever never recovered (audit P3).
+///
+/// The hook's callback is invoked on the thread that installed it, and that
+/// thread MUST pump messages — so install/uninstall happen on a dedicated
+/// hook thread driven by a command channel, with a fast PeekMessage pump.
+pub fn set_mouse_hook(on: bool) {
+    if MOUSE_HOOK_DESIRED.swap(on, Ordering::SeqCst) == on {
+        return;
+    }
+    let tx = {
+        let mut g = MOUSE_HOOK_CMD.lock().unwrap_or_else(|p| p.into_inner());
+        if !MOUSE_HOOK_THREAD.swap(true, Ordering::SeqCst) {
+            let (tx, rx) = std::sync::mpsc::channel::<bool>();
+            *g = Some(tx);
+            std::thread::spawn(move || {
+                let mut hook: Option<HHOOK> = None;
+                loop {
+                    // drain pending commands (non-blocking)
+                    if let Ok(on) = rx.try_recv() {
+                        if on && hook.is_none() {
+                            match unsafe {
+                                SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_proc), None, 0)
+                            } {
+                                Ok(h) => {
+                                    hook = Some(h);
+                                    cvlog!("[cv] mouse hook installed");
+                                }
+                                Err(e) => {
+                                    cvlog!("[cv] mouse hook install FAILED: {e}");
+                                }
+                            }
+                        } else if !on {
+                            if let Some(h) = hook.take() {
+                                unsafe {
+                                    let _ = UnhookWindowsHookEx(h);
+                                }
+                                cvlog!("[cv] mouse hook removed");
+                            }
+                        }
+                    }
+                    // pump: the low-level hook requires an active message pump
+                    // on the installing thread, or the system drops the hook
+                    unsafe {
+                        let mut msg = MSG::default();
+                        while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
+                            let _ = TranslateMessage(&msg);
+                            DispatchMessageW(&msg);
+                        }
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(40));
+                }
+            });
         }
-    });
+        g.clone()
+    };
+    if let Some(tx) = tx {
+        let _ = tx.send(on);
+    } else {
+        // command channel missing — undo the desired flag so a later call retries
+        MOUSE_HOOK_DESIRED.store(!on, Ordering::SeqCst);
+    }
 }
 
 #[cfg(test)]
