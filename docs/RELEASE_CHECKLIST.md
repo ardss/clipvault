@@ -20,7 +20,7 @@ cargo clippy --all-targets -- -D warnings
 cargo test
 cargo test -- --ignored   # deep suite
 npm run build
-npx tauri build
+npx tauri build   # 仅 CI 执行——本仓库正式候选包唯一来源是 GitHub Release CI；Windows B 当前环境禁止本地跑（环境操作限制，非 Tauri 通用约束）
 ```
 
 ## 3. 安装包内容新鲜度
