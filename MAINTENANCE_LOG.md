@@ -4,7 +4,33 @@
 > 风险登记（R-xx）是活文档：状态变更必须附证据；未实施的风险不得标记为已修复。
 > 裁决来源：ChatGPT「ClipVault发版审查」固定会话（AI互通项目）。变更未经 GPT 批准不得动代码。
 
+## 2026-10-26 凌晨 · 外部审计响应轮（用户直投审计清单："核实，有问题都修复"）
+
+### 审计核实（13 项全部属实）
+P1 图片静默丢失（`save_image` 把注册 PNG 格式字节喂给 DIB 解码器，签名被当几何数→必 None）；P2-1 siw 事件窗口外泄；P2-2 content 全文索引双倍存储；P2-3 心跳 5s 一行日志 + 256KB 整删；P2-4 图片无字节配额；P2-5 DIB 分配炸弹（20000²×4 上限内仍可 1.6GB 分配）；P2-6 zoom 常驻 ~50MB / TrySuspend 未实现；P3 捕获同步+120ms 阻塞监听线程、低级钩子装完即弃无自愈、单删/清理无 secure_delete、reconcile 持锁全量 stat、搜索仅 300 字符预览（FTS5）。**好设计清单（事件驱动/锁外捕获/self-write 序号/密码排除/粘贴身份验证）逐项确认未破坏。**
+
+### 修复（commit 1df33dd→amend e3f97da，9 files +676）
+- **P1**：`Incoming::ImagePng/ImageDib` 分流，新增 `png_bytes_to_png`（限宽高 20000 防解压炸弹）；PNG 解码失败回退读同写 DIB；回归测试钉死「PNG 字节过 PNG 路径、DIB 路径拒收」
+- **P2-5**：`declared_rgba > dib.len()*2` 拒收（20MB 载荷声明 1.6GB 被断），测试覆盖
+- **P2-1**：`hide_single_instance_window()`（setup 首步 FindWindowW+SW_HIDE；类名投递不受影响）
+- **P2-2**：`content_hash` 列（FNV-1a 稳定哈希）+ 迁移回填 + 旧全文索引 DROP；upsert_text/html 改 hash 命中后精确比对
+- **P2-3**：heartbeat 去日志；cv.log 超限滚动 cv.log.1（保留一代取证）
+- **P2-4**：图片总配额 512MB（最旧未钉淘汰；stat 锁外/删行锁内/删文件锁外）
+- **P3**：单删与 enforce_limit 启用 secure_delete；reconcile 两阶段（锁内取引用集合，文件系统扫描锁外）；捕获改 worker 线程 latest-wins（监听泵不再被 120ms+解码阻塞）；鼠标钩子面板可见时装/隐藏卸（专用钩子线程 PeekMessage 泵，自愈）
+- **前端**：zoom 窗口 10 分钟空闲销毁（ensureZoomWin 幂等重建）
+- **风险池新增**：R-FTS5 全文搜索；R-TrySuspend（webview2-com-sys 的 TrySuspend 是异步 COM handler 版，需回调封装，收益 30-60MB）
+
+### 门禁与发布状态
+- 本地：cargo fmt=0 / clippy --all-targets -D warnings=0 / **54 tests 全绿**（新增 png/dib 分流、炸弹防护、日志滚动、reconcile 两阶段、hash 迁移生产同构夹具）；npm build 绿
+- main CI #87（e3f97da）SUCCESS；tag v0.1.4 重定位 e3f97da → Release #51 SUCCESS → 空提交 f26027e 重触发（badge.svg 报 failing 为 CDN 旧缓存误导，API 实证）→ Release #52（f26027e）SUCCESS
+- **Draft v0.1.4 资产待登录态核验**（本轮 BrowserOS 不可用；两个 SUCCESS run 意味 action-gh-release 上传成功，匿名 expanded_assets 对 draft 仅显示源码包占位为权限边界非资产丢失）
+- 发布门禁不变：GPT 裁决 + 三场景真实粘贴回归证据，之后走 `releases/edit/untagged-…` 绑定表单 draft=false
+
+### 待办
+- 登录态核验 Draft 三资产 + SHA256；GPT 提案（审计修复批次 + 发版）；三场景回归；最终验收回执
+
 ## 2026-10-25 维护轮（触发 06:40 +08:00，GPT 裁决：B 方案）
+
 
 ### 巡检
 - 起点：`main == origin/main @ e2795d6`，工作区净（tmp-ux/ 为 DEPLOYMENT.md 引用证据，保留）；tag v0.1.4 → 1222a0b 本地核实无误。
