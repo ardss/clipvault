@@ -7,10 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.4] - pending release
+## [0.1.5] - pending release
+
+> The v0.1.4 candidate was superseded before publication (a P1 PNG-capture defect was found in its release build); all of its changes ship in 0.1.5.
 
 ### Fixed
 
+- The PNG-format capture branch is now reachable at runtime: the clipboard-format registration for "PNG" was missing its NUL terminator, so the dedicated PNG decode path never engaged and PNG-only clipboard writes were still silently dropped; covered by real-clipboard regression tests
 - Focus identity is now verified end-to-end on the paste path: the captured child control handle is validated (alive, same thread, descendant of the target) before `SetFocus`, the actual focus is re-read after the restore, and the live focus attribution must still name the verified child when the injector handshake is written — focus that moved again cancels the paste instead of landing in the wrong control
 - The paste destination (top-level HWND + owner PID) is re-validated immediately before the injector handshake is written, so a window that died or an HWND that was recycled during the restore round-trip can no longer take part in the injection
 - v0.1.3 defect fixed: the injector handshake always carried focus = 0 (the captured child slot was read after the restore had cleared it), so strict child matching silently never engaged; the captured child is now consumed up-front and trusted only after verification

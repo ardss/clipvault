@@ -596,7 +596,7 @@ onBeforeUnmount(() => {
                  spellcheck="false" :aria-label="t('setSensitive')" />
           <div class="set-hint">{{ t('setSensitiveHint') }}</div>
         </div>
-        <div class="about">{{ t('about') }} ClipVault v0.1.4 · MIT</div>
+        <div class="about">{{ t('about') }} ClipVault v0.1.5 · MIT</div>
       </div>
     </div>
 
