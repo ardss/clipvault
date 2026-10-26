@@ -107,11 +107,19 @@ pub fn write_clipboard_html(html: &[u8]) -> bool {
     ok
 }
 
+/// Registered "PNG" clipboard format ID. The name MUST be NUL-terminated for
+/// `RegisterClipboardFormatW` — an unterminated buffer reads past its end and
+/// yields a garbage ID, which silently disables every PNG-format read (the
+/// capture branch becomes dead code while DIB dual-writes mask the loss).
+fn png_format_id() -> u32 {
+    let name: Vec<u16> = "PNG\0".encode_utf16().collect();
+    unsafe { RegisterClipboardFormatW(PCWSTR(name.as_ptr())) }
+}
+
 /// Reads raw bytes of the registered "PNG" format if present (Snipping Tool,
 /// browsers and Office write it; byte-exact, no DIB decoding involved).
 pub fn read_clipboard_png_raw() -> Option<Vec<u8>> {
-    let name: Vec<u16> = "PNG".encode_utf16().collect();
-    let fmt = unsafe { RegisterClipboardFormatW(PCWSTR(name.as_ptr())) };
+    let fmt = png_format_id();
     if fmt == 0 {
         return None;
     }
@@ -182,5 +190,42 @@ mod file_tests {
         assert!(write_clipboard_files(&paths), "write failed");
         let back = read_clipboard_files().expect("read back failed");
         assert_eq!(back, paths);
+    }
+
+    #[test]
+    fn png_format_id_matches_independent_registration() {
+        let id = png_format_id();
+        assert_ne!(id, 0, "registered \"PNG\" format id must be non-zero");
+        // independent registration of the same name, written out in full with
+        // its terminator — must resolve to the same system-wide ID
+        let name: Vec<u16> = "PNG\0".encode_utf16().collect();
+        let independent = unsafe { RegisterClipboardFormatW(PCWSTR(name.as_ptr())) };
+        assert_ne!(independent, 0);
+        assert_eq!(
+            id, independent,
+            "read-side registration must match an independent correct registration"
+        );
+        // and the ID must resolve back to the actual format name "PNG"
+        let mut buf = [0u16; 64];
+        let n = unsafe { GetClipboardFormatNameW(id, &mut buf) };
+        assert_eq!(String::from_utf16_lossy(&buf[..n as usize]), "PNG");
+    }
+
+    #[test]
+    fn png_roundtrip_via_clipboard() {
+        let img = image::DynamicImage::ImageRgba8(image::ImageBuffer::from_pixel(
+            2,
+            2,
+            image::Rgba([10u8, 20, 30, 255]),
+        ));
+        let mut buf = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::write_to(&img, &mut buf, image::ImageFormat::Png).expect("encode png");
+        let png = buf.into_inner();
+        assert!(write_clipboard_png(&png), "write_clipboard_png failed");
+        assert_eq!(
+            read_clipboard_png_raw().as_deref(),
+            Some(png.as_slice()),
+            "PNG bytes must round-trip byte-exact through the registered format"
+        );
     }
 }
