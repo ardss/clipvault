@@ -4,6 +4,49 @@
 > 风险登记（R-xx）是活文档：状态变更必须附证据；未实施的风险不得标记为已修复。
 > 裁决来源：ChatGPT「ClipVault发版审查」固定会话（AI互通项目）。变更未经 GPT 批准不得动代码。
 
+## 2026-10-26 维护轮（触发 06:40 +08:00；GPT 三轮裁决：M1 APPROVE → 运行时回归抓出死代码 P1 → B 路线改道 v0.1.5）
+
+### 巡检
+- 起点：`main == origin/main @ 6eee430` 工作区净；tag v0.1.4 → f26027e，Release CI #52 SUCCESS；Issues 13 open 全为 dependabot；npm 6 项 semver 内可升（只记录不升）；cargo-outdated 未装沿用 10-25 记录；官网正常（版本行 v0.1.4 同步，Latest 仍 v0.1.3）。
+- 文档缺口：Draft 正文与官网 v0.1.4 变更日志均为审计轮前旧底稿，未含审计修复批次。
+- 环境事实：Lead 会话无 BrowserOS MCP，浏览器/GPT 通道走任务板执行卡（agent-browser CLI 直连用户 BrowserOS CDP 9100，全卡贯通）。
+
+### GPT 裁决（三轮，全程零方案往返）
+1. 【每日维护提案，07:17】M1 APPROVE（Draft 正文补审计批次/新包 §4 重验/PNG 真实图片+旧库升级回归/证据归档）；M2 有条件 APPROVE（官网候选标注/清单 Windows B 环境限制表述/CHANGELOG 待发布日期）；M3 REQUEST_CHANGES（**SendKeys 无人值守操作真实桌面不批准**，TESTING.md:29-31 禁令无例外，UIAutomation 只读可辅助；替代=用户手动三场景或隔离 VM）；公开发布 HOLD。
+2. 【M1 执行回执+新缺陷，07:47】GPT 独立核验确认 **formats.rs:113 `"PNG".encode_utf16()` 缺 NUL 终止符 → RegisterClipboardFormatW 越界读注册垃圾 ID → PNG 捕获分支真机死代码**（发布门禁级 P1；54 单测绿因未覆盖 Win32 查名；主流应用症状被 DIB 兜底掩盖；PNG-only 写入仍丢图）。修复 APPROVE（1 行 + 必补 Windows API 回归测试）；版本路线选 B：不动 v0.1.4 tag、改道 v0.1.5、旧 Draft 标 Superseded；授权「DSH 直接执行，下轮回执只需修复 diff/API 测试/PNG-only 真机回归/CI/新资产证据」。
+
+### M1 运行时验收执行（Lead 本地段 07:25-07:33，触发时机器空闲 6.25h）
+- §4 五步 PASS：全量冷备份（backup-pre-s4-20261026-072632\，db/WAL/SHM/settings/188 图 25.3MB）→ 杀 21164+6 子进程 → Unblock-File+/S → exe mtime 10-24 15:40→10-26 01:21:24（=CI 构建时刻）→ POSTINSTALL 自动拉起；settings.json 哈希前后一致、792 行/pinned 1/图 95 零损失。
+- content_hash 迁移 PASS：回填 681/792 = text 324+html 357 全覆盖（image 95+file 16 本就不哈希，精确吻合）；去重 PASS（复写仍 1 行、use_count=2、时间戳挪新）。
+- PNG 回归（真实剪贴板 API 写入，零合成键鼠）：PNG+DIB 双写捕获 PASS 但 cv.log 证实走 DIB 分支；**PNG-only 静默丢弃** → 抓出上述死代码缺陷。证据：clipvault-rounds\2026-10-26-s4-result.md。
+
+### M2 文档对齐（commit 20ed0bc；main CI #90 + Pages #70 绿，GPT 独立确认）
+- 官网 v0.1.4 标注「候选版本 · 验收中」+ 审计批次 ch45-47 中英注册；RELEASE_CHECKLIST §2 标注 npx tauri build 仅 CI（Windows B 环境限制，非 Tauri 通用约束）；CHANGELOG [0.1.4] 日期改 pending release。
+
+### B 路线：v0.1.5 候选（GPT 预授权直接执行）
+- 修复 6d1d493：`"PNG\0"` 终止符 + 抽出 `png_format_id()` + 2 个 Windows 级回归测试（独立注册 ID 一致性 + 真机剪贴板字节级往返）；本地 fmt/clippy/test 绿（56 passed，+2 新测试）；main CI #91 绿（windows runner 真实执行新测试）。
+- 版本六处同步 0.1.5（package.json / tauri.conf.json / Cargo.toml / Cargo.lock / CHANGELOG [0.1.4] pending 折叠进 [0.1.5] 并记录 0.1.4 因缺陷未发布 / App.vue About / docs/index.html ver 行+ver_cand 候选标注+ch48）→ 584c3f5 → main CI 绿 → tag v0.1.5 推送 → **Release CI #53 SUCCESS（12 分钟）**。
+- 新 Draft v0.1.5（untagged-1bc29323632f83bc4b5a，绑定 584c3f5）三资产核验 PASS，setup SHA256 三方一致 `cea5061d…e564`（2,348,268B；Card D 下载 + Lead 独立复核）。body 空（CI 新建），发布前需按 0.1.4 底稿样式回填。
+- 原 v0.1.4 Draft：title/body 已加 `SUPERSEDED — DO NOT PUBLISH` 标注（Card D 落库回读 4535 字符逐字核验）。
+
+### ⚠ 事故记录：v0.1.4 被意外发布（08:57:19），回滚进行中
+- Card D 对 release 编辑表单 `form.requestSubmit()` 程序化提交，绕过前端 draft 意图逻辑 → v0.1.4（release id 422588922）翻成 published。**缓解**：title/body 已带 SUPERSEDED — DO NOT PUBLISH 醒目标注；公开 Latest 未被抢占仍 v0.1.3（API 实证）；tag/资产未动。
+- 根因教训（入手册规范）：**GitHub release 表单绝不能程序化提交；draft 状态变更必须走认证 API**。
+- 回滚唯一路径 = `PATCH /repos/ardss/clipvault/releases/422588922 -f draft=true`（Web UI 无转回草稿入口，gh 未登录）→ Card D 已问询用户，用户答复「你去跑，我登陆」→ 等登录完成即执行并 API 复核（本节回执后补）。
+
+### v0.1.5 本地验收（进行中）
+- 空闲守望者已挂（clipvault-rounds\v05-acceptance-watcher.ps1，后台 job）：GetLastInputInfo 空闲 ≥600s 自动执行 §4（0.1.5 包）+ 三模式 PNG 回归（PngOnly/Dual/Corrupt，对应 GPT 验收表场景 1/2/3，零合成键鼠）→ 证据落盘 clipvault-rounds\2026-10-26-v05-verification.md。09:50 触发时用户活跃（idle=46s），守望等窗口。
+
+### 发版
+- v0.1.4：不发布（Superseded；误发布事故回滚中）。
+- v0.1.5：HOLD——机器侧证据齐后，仍差三场景真实粘贴回归（用户手动或隔离 VM）；发布需 GPT 最终 GO/NO-GO。公开 Latest 保持 v0.1.3。
+
+### 待办
+- 用户：gh auth login（回滚解锁中）→ 三场景真实粘贴回归（拾事 tid_840001pfGDxI 已更新）。
+- 机器侧：watcher 空闲触发后核对证据 → Card E 最终回执（diff/API 测试/PNG-only 真机回归/CI/新资产五样）→ v0.1.5 Draft body 回填（发布前）。
+- 下轮：release 表单操作规范（API 优先/禁程序化提交）写进发版手册；隔离 VM 回归方案提案；依赖 chore 窗口（dependabot 13 PR 维持不合并，majors 需专评）。
+- 经验沉淀：PCWSTR 必须 NUL 终止（读写两侧都要测）；卡自称状态须权威源核验再+1。
+
 ## 2026-10-26 凌晨 · 外部审计响应轮（用户直投审计清单："核实，有问题都修复"）
 
 ### 审计核实（13 项全部属实）
