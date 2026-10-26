@@ -57,3 +57,14 @@ taskkill //F //IM cargo.exe //T 2>/dev/null; taskkill //F //IM rustc.exe //T 2>/
 ```
 
 - 始终用 `npx tauri build`，不要用裸 `cargo build --release`（会带 dev 配置，见 postmortem-2026-09-11）
+
+## 7. 发布操作门禁（2026-10-26 误发布事故教训，GPT 批准）
+
+> 背景：v0.1.4 候选 Draft 因 `form.requestSubmit()` 程序化提交被 GitHub 服务端按发布处理，意外公开 2 小时后回滚。以下 4 条为发布操作硬门禁：
+
+1. **禁止程序化提交 Release 表单**——BrowserOS/自动化对 GitHub Release 编辑表单禁用 `requestSubmit()` 及任何未经验证的程序化提交路径
+2. **Draft 状态变更只走认证 API**——`PATCH /repos/{o}/{r}/releases/{id} -f draft=true` 等，不用 Web 表单
+3. **写后读取验证**——每次状态变更后重新 GET/回读确认，不以 HTTP 成功、页面跳转或按钮状态代替
+4. **draft=false（对外发布）须单独最终 GO 授权**——不得由定时巡检或通用维护 Agent 自主触发
+
+另：已发布 Release 无 Web UI「转回草稿」入口；回滚唯一路径 = 上述认证 API PATCH，且 PATCH 被拒时不得删 Release/tag/资产绕过，保留警告并升级裁决。

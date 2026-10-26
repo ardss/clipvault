@@ -38,6 +38,12 @@
 - 触发前空闲 645s（铁律 >=600s）；冷备份 backup-pre-v015-20261026-103408\；§4 五步 PASS：exe mtime → 2026-10-26 08:59:02（=Release #53 构建时刻）ver 0.1.5，POSTINSTALL 自动拉起，settings.json 哈希不变。
 - 三模式 PNG 回归（修正测试脚本 $G/$g 变量大小写冲突后 10:36 重跑）全 PASS：**PngOnly 96px** `png format read: 359 bytes` → 捕获+去重命中既有同图（use_count 1→2，缺陷前此场景静默丢弃）；**Dual 120px** PNG 路径优先（`png format read: 423 bytes`）→ 新行 816；**Corrupt 64px** PNG 读取 304 bytes → 解码失败 → 安全回退 DIB → 新行 817。附证：0.1.5 启动首事件即走新分支（517857 bytes 大图）；siw hidden + hotkey registered 在岗。证据：clipvault-rounds\2026-10-26-v05-verification.md（含首轮脚本 bug 说明：PowerShell 变量不分大小写，param 与函数体变量不得同名）。
 
+### GPT 第四轮裁决（11:09，Card E 三连回执后）：修复 APPROVE · 事故 IN PROGRESS · v0.1.5 发布 NO-GO
+- GPT 独立复核：CI #91 Windows 作业日志里两个新测试 PASS；读本地 v05-verification.md 全文；API 复核 v0.1.4 仍公开、v0.1.5 draft=true、latest=v0.1.3。
+- 裁决：B 路线实现与 PNG 技术修复 **APPROVE**；发布事故处置 **IN PROGRESS**（批准现有单通道守望者回滚，禁开第二条并行回滚链路）；v0.1.5 公开发布 **NO-GO**（三场景真实粘贴回归 + 真实来源图片捕获回归未过门禁）。
+- 事故关闭条件 7 条（PATCH 成功后 GET 复核 / 未认证访问不可得 / latest 保持 v0.1.3 / 时间线+下载计数+根因记录 / 历史暴露事实保留 / 被拒不绕行只升级 / 警告保留）；操作规范修订 APPROVE → 已写入 docs/RELEASE_CHECKLIST.md §7 四条硬门禁。
+- 回滚结果与真实应用验收证据**补投** GPT 后事故才闭环（下轮）。
+
 ### 发版
 - v0.1.4：不发布（Superseded；误发布事故回滚中）。
 - v0.1.5：HOLD——机器侧证据齐后，仍差三场景真实粘贴回归（用户手动或隔离 VM）；发布需 GPT 最终 GO/NO-GO。公开 Latest 保持 v0.1.3。
