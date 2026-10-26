@@ -34,8 +34,9 @@
 - 根因教训（入手册规范）：**GitHub release 表单绝不能程序化提交；draft 状态变更必须走认证 API**。
 - 回滚唯一路径 = `PATCH /repos/ardss/clipvault/releases/422588922 -f draft=true`（Web UI 无转回草稿入口，gh 未登录）→ Card D 已问询用户，用户答复「你去跑，我登陆」→ 等登录完成即执行并 API 复核（本节回执后补）。
 
-### v0.1.5 本地验收（进行中）
-- 空闲守望者已挂（clipvault-rounds\v05-acceptance-watcher.ps1，后台 job）：GetLastInputInfo 空闲 ≥600s 自动执行 §4（0.1.5 包）+ 三模式 PNG 回归（PngOnly/Dual/Corrupt，对应 GPT 验收表场景 1/2/3，零合成键鼠）→ 证据落盘 clipvault-rounds\2026-10-26-v05-verification.md。09:50 触发时用户活跃（idle=46s），守望等窗口。
+### v0.1.5 本地验收（PASS，10:34 空闲守望者自动执行）
+- 触发前空闲 645s（铁律 >=600s）；冷备份 backup-pre-v015-20261026-103408\；§4 五步 PASS：exe mtime → 2026-10-26 08:59:02（=Release #53 构建时刻）ver 0.1.5，POSTINSTALL 自动拉起，settings.json 哈希不变。
+- 三模式 PNG 回归（修正测试脚本 $G/$g 变量大小写冲突后 10:36 重跑）全 PASS：**PngOnly 96px** `png format read: 359 bytes` → 捕获+去重命中既有同图（use_count 1→2，缺陷前此场景静默丢弃）；**Dual 120px** PNG 路径优先（`png format read: 423 bytes`）→ 新行 816；**Corrupt 64px** PNG 读取 304 bytes → 解码失败 → 安全回退 DIB → 新行 817。附证：0.1.5 启动首事件即走新分支（517857 bytes 大图）；siw hidden + hotkey registered 在岗。证据：clipvault-rounds\2026-10-26-v05-verification.md（含首轮脚本 bug 说明：PowerShell 变量不分大小写，param 与函数体变量不得同名）。
 
 ### 发版
 - v0.1.4：不发布（Superseded；误发布事故回滚中）。
