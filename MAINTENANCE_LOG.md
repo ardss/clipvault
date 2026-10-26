@@ -32,7 +32,8 @@
 ### ⚠ 事故记录：v0.1.4 被意外发布（08:57:19），回滚进行中
 - Card D 对 release 编辑表单 `form.requestSubmit()` 程序化提交，绕过前端 draft 意图逻辑 → v0.1.4（release id 422588922）翻成 published。**缓解**：title/body 已带 SUPERSEDED — DO NOT PUBLISH 醒目标注；公开 Latest 未被抢占仍 v0.1.3（API 实证）；tag/资产未动。
 - 根因教训（入手册规范）：**GitHub release 表单绝不能程序化提交；draft 状态变更必须走认证 API**。
-- 回滚唯一路径 = `PATCH /repos/ardss/clipvault/releases/422588922 -f draft=true`（Web UI 无转回草稿入口，gh 未登录）→ Card D 已问询用户，用户答复「你去跑，我登陆」→ 等登录完成即执行并 API 复核（本节回执后补）。
+- 回滚唯一路径 = `PATCH /repos/ardss/clipvault/releases/422588922 -f draft=true`（Web UI 无转回草稿入口，gh 未登录）→ Card D 已问询用户，用户答复「你去跑，我登陆」→ 等登录完成即执行并 API 复核。
+- **16:54 更新**：v1 守望者 6h 超时（gh 登录始终未完成）；Lead 尝试交互式 `gh auth login` 与手动设备流均遇 **代理 GitHub TLS 通道断线**（16:57 实测 api.github.com + github.com 主站 SSL 握手全灭，浏览器 ERR_CONNECTION_CLOSED；SSH git push 不受影响）——回滚暂被网络层卡住。v2 守望者已挂（每 5 分钟探代理，恢复后 gh 已登录则自动 PATCH，未登录则报警走交互式登录），上限至次日 06:30。
 
 ### v0.1.5 本地验收（PASS，10:34 空闲守望者自动执行）
 - 触发前空闲 645s（铁律 >=600s）；冷备份 backup-pre-v015-20261026-103408\；§4 五步 PASS：exe mtime → 2026-10-26 08:59:02（=Release #53 构建时刻）ver 0.1.5，POSTINSTALL 自动拉起，settings.json 哈希不变。
