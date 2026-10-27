@@ -4,6 +4,37 @@
 > 风险登记（R-xx）是活文档：状态变更必须附证据；未实施的风险不得标记为已修复。
 > 裁决来源：ChatGPT「ClipVault发版审查」固定会话（AI互通项目）。变更未经 GPT 批准不得动代码。
 
+## 2026-10-27 维护轮（触发 06:40 +08:00；GPT 裁决：事故 A 方案执行 + 隔离 VM CONDITIONAL APPROVE + v0.1.5 HOLD）
+
+### 巡检
+- 起点：`main == origin/main @ 6aea6ae` 工作区净；CI #40296832497 + Pages 绿（10-26 17:04 +08:00）。
+- Issues 0 真 issue；13 open 全为 dependabot PR（维持不合并）；npm 6 项 semver 内可升（同 10-25 记录，只记录不升）；cargo-outdated 未装沿用旧记录。
+- 官网正常：版本行 v0.1.5 候选标注在位、与仓库一致；公开 Latest 保持 v0.1.3。
+- 环境：gh 未登录；用户浏览器 GitHub 会话已失效（device 流授权页跳 login）；代理 TLS 06:42 恢复（200）。
+
+### 事故（v0.1.4 误发布）收口：平台实锤 → GPT 升级裁决 → A 方案执行完毕
+- **平台限制实锤（换通道取证）**：gh/浏览器登录双路不通后，按「换通道」纪律改走仓库 GITHUB_TOKEN（认证 API，§7.2 合规）——临时分支 workflow PATCH `draft=true`（run 40415740119 成功）但状态不变；诊断 workflow 双取证（runs 40416206148 / 40419151569）：**已发布 release 的 PATCH draft=true 被 GitHub 静默忽略（HTTP 200、响应与复读均 draft=false）**；name/body 编辑权限正常可用。10-26「PATCH 唯一路径」假设证伪。按 §7「被拒不删绕过」未删任何对象。
+- **暴露面留证**：3 资产合计 5 次下载（setup 1 / portable 0 / sums 4）；Latest 全程保持 v0.1.3。
+- **GPT 今日裁决（08:12 前后送达）**：①事故处置 **APPROVE 选 A**（保留 Release/tag/资产，正文顶部加醒目警告，API 回读核验；状态记「已缓解」不记「成功撤回」）；②隔离 VM 回归 **CONDITIONAL APPROVE**（Windows Sandbox 关宿主剪贴板共享/安装器哈希验证/合成输入仅 VM 内/记事本+Edge+原生多控件三场景+真实来源图片捕获全证据；满足则**可替代人工**但不自动获得发布授权）；③v0.1.5 **HOLD** 保持 Draft；④今日不发版。
+- **A 方案执行（run 40425508378，GPT 批准后）**：v0.1.4（id 422588922）正文前置硬警告块（误发布说明+PNG P1 缺陷+引导 v0.1.3/v0.1.5），5,342 字符；GITHUB_TOKEN API PATCH + 服务端复读 + 匿名公开读**双核验**（警告置顶确认）；Release/tag/资产未动。事故状态：**已缓解**。证据：clipvault-rounds/2026-10-27-incident-rollback-evidence.md + 2026-10-27-v014-hardened-body.md。
+- 回执已投 GPT（含事故回执标记，页面验证 receiptCount≥1；因自动化重试实际送达两份相同回执，内容一致无歧义）。
+
+### 执行（其余批准项）
+- ✅ v0.1.5 Draft body 回填（昨日授权「机器侧：发布前回填」）：Draft id 423764142，body 5,083 字符 = CHANGELOG [0.1.5] 全量 + Known limitations 两节（含浏览器多标签 HWND 边界）+ Install 节（setup `cea5061d…e564` / portable `0ec81a6d…f1` 与 CI SHA256SUMS.txt 逐字一致）；token API 修改（run 40419151569 后半段）+ 服务端复读（body_head 吻合）+ draft 仍 true（未动状态）。
+- ✅ Draft 三资产 token 核验：setup 2,348,268B（与昨日三方 SHA 终核一致）/ portable 7,898,112B / SHA256SUMS 193B；publish_at 仍 null。
+- ✅ 通道沉淀：agent-browser 直连 9100 会拉起独立实例（非用户浏览器）；正确通道=原始 CDP websocket（浏览器级 Target.createTarget + activateTarget 唤醒冻结标签 + Runtime.evaluate 小表达式分块注入 + `button[type=submit][aria-label*=发送]` 点击）。ChatGPT 大表达式 evaluate 会挂、Promise 类挂（权限弹窗不可达）、后台标签 5 分钟冻结——均为本卡新踩坑。
+- ⏸ 隔离 VM 验收：**Windows Sandbox 功能未启用**（`C:\Windows\System32\wsb.exe` 不存在；DISM 查询需管理员）；OS=Win11 专业工作站版、固件虚拟化已开，启用功能 = 管理员 `Enable-WindowsOptionalFeature -Online -FeatureName Containers-DisposableClientVM` + **重启**——用户在用机器，重启需用户挑时间（唯一解锁动作）。启用前的替代路径：用户手动三场景（约5分钟，仍在待办）。
+
+### 发版
+- **否**（GPT 明示今日不发版；v0.1.5 保持 Draft，VM 证据齐后申请最终 GO/NO-GO）。
+
+### 待办
+- 用户侧（唯一解锁动作）：**管理员启用 Windows Sandbox 并重启**（`Enable-WindowsOptionalFeature -Online -FeatureName Containers-DisposableClientVM`，重启会打断通宵管线/在用会话，请挑空闲时间）→ 之后机器侧即可跑隔离 VM 回归；或直接手动做三场景人工回归（约5分钟，同样有效）。
+- 机器侧（下轮主任务）：Sandbox 启用后跑隔离 VM 真实粘贴回归（GPT 条件批准）——关宿主剪贴板共享、安装器哈希验证、合成输入仅 VM 内、三场景+真实来源图片捕获全证据 → 投 GPT 申请最终 GO/NO-GO → GO 后按 §7 门禁发布（draft=false 走 untagged 绑定表单或认证 API）。
+- 拾事：已完成 tid_840001jw0Cae（回滚复核）/ tid_840001d2hIXZ（昨日日报）；更新 tid_840001KK9sYa（最终验收回执）+ tid_840001pfGDxI（用户任务）；新登记 tid_840001Y7dsl0（VM 验收）+ tid_8400012DDcpY（今日日报），全部 get 回读验证。
+- 经验沉淀：①已发布 release 不可转 draft 是平台限制，回滚预案只能走「警告加固」或「删除重建」（后者须 GPT 明确授权）；②GITHUB_TOKEN 临时分支 workflow = gh 登录不可用时的合规认证 API 通道（用完即删分支）；③ChatGPT 自动化：大表达式/Promise evaluate 不可靠，分块小表达式 + 前台激活 + 发送按钮（aria-label=发送, type=submit）是稳定组合。
+
+
 ## 2026-10-26 维护轮（触发 06:40 +08:00；GPT 三轮裁决：M1 APPROVE → 运行时回归抓出死代码 P1 → B 路线改道 v0.1.5）
 
 ### 巡检
