@@ -4,6 +4,27 @@
 > 风险登记（R-xx）是活文档：状态变更必须附证据；未实施的风险不得标记为已修复。
 > 裁决来源：ChatGPT「ClipVault发版审查」固定会话（AI互通项目）。变更未经 GPT 批准不得动代码。
 
+## 2026-10-28 收敛核验（无定时触发；用户「CV/KY收敛总执行」直授权，KY 原Owner 代执行）
+
+### 触发说明
+DSH 运行时 10-28 迁移（GUI 3979→8650、安装路径变更），推断 06:40 定时卡未触发（日志顶部无 10-28 记录佐证）。本轮由用户手动授权驱动，范围=ClipVault（CV）+Kynoptic（KY）双项目收敛；CV 部分为只读核验+本日志落盘，零代码变更。
+
+### 核验（全部只读）
+1. **隔离 VM 前置**：wsb.exe 仍不存在（Windows Sandbox 未启用；Get-WindowsOptionalFeature 查询需管理员，未提权执行）——上轮唯一解锁动作（管理员启用 Sandbox+重启）未完成，VM 回归仍不可跑。
+2. **v0.1.5 状态**：不重验 Draft（draft 读取需认证 API；10-27 已验 body 5,083 字符/三资产 SHA 一致/publish_at null；今日无本机动作，无漂移诱因）——维持 GPT NO-GO→HOLD，等 VM/手动三场景证据。
+3. **公开面**：匿名 GitHub API 被代理出口 IP 限额打爆（403 rate limit），Latest=v0.1.3 今日未复核；10-27 已核官网候选标注+Latest 正常，今日无变更动作，漂移风险低。
+4. **仓库**：main==origin/main @ b3d2440、工作区净（clipvault-rounds/ untracked 属证据目录惯例，维持不提交）。
+5. **环境**：C 盘 17:26 实测 5.77 GiB（DU 看板列为最高优先的容量危机）——本轮零构建零测试，轻脚印执行。
+6. **通道**：chatgpt.com 对新导航弹 Cloudflare Turnstile 且拒绝 CDP 合成点击（KY 侧三次点击+reload+新开标签实测无效，截图字节级一致）——**CV 的 GPT 审查通道今日同样受阻**；浏览器本体通道已修复（agent-browser connect 9100 附着真实 BrowserOS，GitHub/普通页面可用）。
+
+### 结论
+- 收敛判定：CV 侧今日无可推进项（唯一机器侧任务=VM 回归，仍锁在用户启用 Sandbox）；状态与 10-27 完全一致，无新增烂尾。
+- 本日志经 SSH 直推 main（CV 约定允许；docs-only）。
+
+### 待办（不变项确认）
+- 用户：①管理员启用 Windows Sandbox+重启（或手动三场景约5分钟）→ 机器侧即跑 VM 回归→GPT 最终 GO/NO-GO；②BrowserOS chatgpt 标签点一次 Turnstile 验证框（CV+KY 共用审查通道解锁）。
+- 机器侧：Sandbox 就绪后按 10-27 条件批准协议执行 VM 回归并投 GPT。
+
 ## 2026-10-27 维护轮（触发 06:40 +08:00；GPT 裁决：事故 A 方案执行 + 隔离 VM CONDITIONAL APPROVE + v0.1.5 HOLD）
 
 ### 巡检
