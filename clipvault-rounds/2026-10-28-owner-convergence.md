@@ -29,3 +29,23 @@
 | 三场景真实粘贴 + 焦点回归 | ⏳ 待用户手动验收（指引已备好）或沙箱 |
 | GPT《ClipVault发版审查》最终 GO | ⏳ 验收通过后投审 |
 | 发布操作 | GO 后本会话执行 draft→published，随后通知 WinA/WinB 部署 |
+
+## 增补（2026-10-28 19:28-20:08 · 额度恢复续办轮）
+
+### 隔离方案穷尽结果
+| 方案 | 结论 |
+|---|---|
+| Windows Sandbox | ❌ wsb.exe 不存在，未启用（启用需管理员+重启，用户排除项） |
+| Hyper-V / VirtualBox / VMware | ❌ 服务未运行 / 未安装 |
+| APPDATA 环境变量隔离 | ❌ Tauri 数据目录走 Known Folder（上轮事故已证） |
+| **测试 identifier 构建（com.clipvault.test）** | ✅ 数据目录彻底隔离，PNG 捕获/保留测试均基于此 |
+| **CDP 面板内可信点击**（WebView2 --remote-debugging-port=9223，`show_panel_cmd` 编程唤出面板，替代全局热键） | ✅ 机制可行（面板页 http://tauri.localhost/ 可达、行可点击），全程零合成键鼠 |
+| 合成键鼠（SendKeys/AppActivate 抢前台） | ❌ 已弃用：活跃用户桌面下前台不可抢，4 次 fail-safe 全部正确中止（零输入落桌）；20:05 实测前台=用户 Chrome（kynoptic 页）证实用户正活跃 |
+
+### 构建教训
+裸 `cargo build --release` 不启用 custom-protocol → 面板加载 devUrl 失败（chrome-error）；必须 `npx tauri build --no-bundle`。
+
+### 当前部署：空闲门控 watcher
+- `tmp-ux/idle-watcher.ps1`（已布防，20:08 armed）：桌面空闲≥10min → 停真实实例 → 起测试实例(CDP) → 起受控靶（WinForms 双控件/记事本/独立 profile Chrome）→ 跑 driver.mjs（四场景，逐场景前台硬校验，不匹配即安全中止）→ 恢复真实实例。证据落 `C:\Users\13397\cv-iso-test\{driver.log,driver-output.txt,host-state.txt,targets.log}`。
+- 唯一非合成"按键"=应用自身 injector 的 Ctrl+V，受其 fail-closed 焦点契约约束，目标是毫秒级前校验过的受控窗口。
+- 定时复核：automation-c70858cb（23:08 一次性）检查结果并推进 GPT 终审；GO 前仍 HOLD 不发版。
