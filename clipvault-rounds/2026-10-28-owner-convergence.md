@@ -56,3 +56,10 @@
 - 真实实例由 watcher finally 块自动恢复（20:10，`hotkey registered: Alt+V` 确认）
 - 修复：idle 改 uint 回绕减法（sanity 23:10 idle=479234ms 合理），门槛提到 15min；watcher 已重新布防（23:10 armed）
 - 下一复核：一次性 automation（约 +3h），条件与红线不变
+
+### 闲时复核 #2（offpeak-0677653c 执行）
+- watcher 23:17 触发（idle=900s 达 15min 门槛，计算正确），全流程跑完并自愈恢复真实实例（23:18:16，Alt+V）
+- driver 4 场景**第三次全部被前台硬校验拦截**：foreground=9464（BrowserOS Chrome，kynoptic 页）≠ 靶 pid。该"空闲"期间 9464 持有前台但无键鼠输入（可能后台渲染/播放态）→ GetLastInputInfo 无法覆盖此类占前台
+- 零合成键鼠落桌，真实 clips.db 全程未动
+- **结构性结论**：9464 是长驻前台窗口，只要它开着，AppActivate 抢不到前台、空闲门控也不可靠。机器侧自动化四场景粘贴在本机（用户活跃共桌）已穷尽：Sandbox/VM 不可用 + 前台不可控。剩余唯一路径=用户 5 分钟手动验收（manual-acceptance-guide-2026-10-28.md 四步，回 PASS/FAIL 四行）或管理员启用沙箱跑验收包
+- 停止重新布防 watcher（避免反复短暂停启真实实例）；门禁表"四场景粘贴"项正式转为待用户输入
