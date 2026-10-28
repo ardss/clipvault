@@ -49,3 +49,10 @@
 - `tmp-ux/idle-watcher.ps1`（已布防，20:08 armed）：桌面空闲≥10min → 停真实实例 → 起测试实例(CDP) → 起受控靶（WinForms 双控件/记事本/独立 profile Chrome）→ 跑 driver.mjs（四场景，逐场景前台硬校验，不匹配即安全中止）→ 恢复真实实例。证据落 `C:\Users\13397\cv-iso-test\{driver.log,driver-output.txt,host-state.txt,targets.log}`。
 - 唯一非合成"按键"=应用自身 injector 的 Ctrl+V，受其 fail-closed 焦点契约约束，目标是毫秒级前校验过的受控窗口。
 - 定时复核：automation-c70858cb（23:08 一次性）检查结果并推进 GPT 终审；GO 前仍 HOLD 不发版。
+
+### 23:08 定时复核结果（automation-c70858cb 执行）
+- watcher 20:09 触发，但 idle 计算踩中 TickCount 49 天回绕（假大值）→ 在用户活跃时启动
+- driver 4 场景前台硬校验**再次全部正确拦截**（foreground=9464 用户 Chrome ≠ 靶 pid），零输入落桌
+- 真实实例由 watcher finally 块自动恢复（20:10，`hotkey registered: Alt+V` 确认）
+- 修复：idle 改 uint 回绕减法（sanity 23:10 idle=479234ms 合理），门槛提到 15min；watcher 已重新布防（23:10 armed）
+- 下一复核：一次性 automation（约 +3h），条件与红线不变
