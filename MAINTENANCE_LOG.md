@@ -25,6 +25,29 @@ DSH 运行时 10-28 迁移（GUI 3979→8650、安装路径变更），推断 06
 - 用户：①管理员启用 Windows Sandbox+重启（或手动三场景约5分钟）→ 机器侧即跑 VM 回归→GPT 最终 GO/NO-GO；②BrowserOS chatgpt 标签点一次 Turnstile 验证框（CV+KY 共用审查通道解锁）。
 - 机器侧：Sandbox 就绪后按 10-27 条件批准协议执行 VM 回归并投 GPT。
 
+## 2026-10-28 CV/KY 双机收敛·CV Owner 授权执行轮（用户授权 17:15，卡片正文 17:45 送达；承接上轮「收敛核验」）
+
+### 授权边界（卡片正文）
+- 目标链：**实际打通安全隔离验收方案并拿证据** → GPT《ClipVault发版审查》独立终审 → GO 后发布 v0.1.5 → 联动 Windows A DESKTOP-CD2C03F / Windows B DU 双机安装（数据不丢+运行验收，四格 PASS 才通知）。
+- 边界：不合并 Git 分支/合仓；GO 前不动分支/Tag/Release；不公开未 GO 版本；v0.1.4 含 PNG-only P1 **禁装**；KY 归另一原 DSH 维护会话（v0.4.0 已发布，双机升级归 KY 会话管）；统一索引=飞书 wiki FexfwoY94iijcVk6eEocbqLpnAt；不要再问需求，实际推进。
+- 卡片正文获取：标题先行、正文缺位 → 穷尽本地检索（AIControl/K:\Project/ZCode 看板与当日证据/会话库/定时器/OpenViking）无果 → 向用户求证一次即获全文（未二次追问）。
+
+### 执行（本轮实际推进）
+- ✅ **隔离验收套件落盘**（本轮核心产出）：`clipvault-rounds\sandbox-acceptance-kit\`
+  - `cv-vm-acceptance.wsb`：ClipboardRedirection/Networking/vGPU/Printer/AudioInput 全 Disable（GPT 隔离条件 1:1 落实），LogonCommand 自动拉起验收。
+  - `vm-acceptance.ps1`（VM 内）：S1 安装包 SHA256 对 SHA256SUMS.txt 核验（条件2）→ S2/S3 §4 静默安装物理核验（mtime/StartTime）→ S4 记事本/S5 Edge 本地页 textarea/S6 Explorer 地址栏三场景粘贴（合成输入仅 VM 内，条件3；Alt+V 默认热键经 settings.rs 证实）→ S7 真实来源图片捕获（mspaint Ctrl+A/C 优先，缺 Store 应用时回退 WPF ImageCopyTool 真实 GUI 管道，经由方式写入 result.json 供终审判别）→ S8 证据打包（clips.db/cv.log/截图/result.json）。
+  - `run-acceptance.ps1`（宿主）：功能预检 → 候选包缺失时经孤儿分支 workflow 从 v0.1.5 Draft 认证拉取（复用 10-27 sums 通道）→ 宿主 SHA256 终核 → 启动 .wsb。
+  - `README.md`：GPT 四条件→步骤映射与闭环链（证据→终审→GO→认证 API 发布→双机安装）。
+- ⏸ 唯一解锁动作（未变）：管理员启用 Sandbox+重启——17:49 本会话触发 UAC（-NoRestart 不强制重启）**被用户取消**，按不轰炸纪律未重试。启用命令见 README。
+- 📋 KY 只读事实（供 KY Owner 会话，CV 侧不动）：K:\kynoptic main==origin/main @ b97f106 净、stash 空；**12 个本地分支未推 origin**（docs/maint-20261027 含 10-27 维护轮文档 51 行未进 main=真实未推内容；docs/maintenance-log、fix/cleanup-watermark-advance、fix/cli-no-topmost-modal、fix/no-intrusive-alerts、fix/spawn-single-authority、fix/wave46~50×5、release/v0.4.0 共 11 个为 squash 合并后的本地残留形态，内容级差异需逐分支审）；K:\Project\TEMP\kynoptic 旧克隆 a36e3bd 为 main 祖先（可清理候选）。
+- 📋 CV 仓：main==origin/main @ b3d2440 净（本日志 docs 提交除外）；clipvault-rounds\ 惯例不提交。
+
+### 下一步（按目标链顺序）
+1. Sandbox 启用+重启（或用户手动三场景约5分钟，同样满足门禁）→ `run-acceptance.ps1` → 证据包 vm-share\out\。注意 DU C 盘 5.77GiB 容量危机（上轮已列最高优先），Sandbox 基础镜像启用约需数百 MB，启用前建议先解 C 盘燃眉。
+2. 证据+Turnstile 解锁后投 GPT《ClipVault发版审查》独立终审 → 最终 GO。
+3. GO → 认证 API 发布 v0.1.5（§7 四门禁）→ 联动 Windows A/B 安装（%APPDATA% 数据保留已有 10-25 哈希级实证）→ 运行验收四格 PASS → 通知用户。
+
+
 ## 2026-10-27 维护轮（触发 06:40 +08:00；GPT 裁决：事故 A 方案执行 + 隔离 VM CONDITIONAL APPROVE + v0.1.5 HOLD）
 
 ### 巡检
