@@ -74,3 +74,9 @@
 - textbox: landed=true, otherKept=true, **PASS=true**
 - richtextbox: landed=true, otherKept=true, **PASS=true**
 - notepad/chrome: 前两轮被 pid 校验/Chrome 更新弹窗挡住 → 修复（title 发现免 pid、Edge 靶）后由空闲 watcher 自动补跑
+
+### 10-29 14:4x 状态快照
+- 已 PASS（13:13 轮实证）：textbox、richtextbox（真实粘贴+焦点回归，RESULT PASS=true）
+- 待自动补跑：notepad（单实例换 pid → 已改 title 子串发现）、chrome（更新弹窗 → 已换 Edge 靶 + CDP 就绪轮询）
+- 修复版 watcher 已布防（14:07，CDP 就绪轮询 + 15min 空闲门控 + finally 自愈）；用户持续活跃（36min 无 15min 空闲窗），自动触发未发生
+- 交接约定：watcher 触发后 driver.log 会出现 4 行 RESULT；任一会话消息即可让 Owner 解析结果并执行「组证据包→GPT 终审→GO 后发布」
