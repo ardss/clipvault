@@ -63,3 +63,14 @@
 - 零合成键鼠落桌，真实 clips.db 全程未动
 - **结构性结论**：9464 是长驻前台窗口，只要它开着，AppActivate 抢不到前台、空闲门控也不可靠。机器侧自动化四场景粘贴在本机（用户活跃共桌）已穷尽：Sandbox/VM 不可用 + 前台不可控。剩余唯一路径=用户 5 分钟手动验收（manual-acceptance-guide-2026-10-28.md 四步，回 PASS/FAIL 四行）或管理员启用沙箱跑验收包
 - 停止重新布防 watcher（避免反复短暂停启真实实例）；门禁表"四场景粘贴"项正式转为待用户输入
+
+### 10-29 恢复轮：根因修复 + 前两场景 PASS（13:35 布防中）
+**根因链（区别三类失败）**：
+1. `ABORT foreground != target` = **测试环境失败**：Windows 前台锁定策略使 AppActivate 无法从长驻前台进程抢焦点。解法：`AttachThreadInput`+`SetForegroundWindow`（窗口管理 API，非键鼠注入）——`tmp-ux/focus-take.ps1`
+2. `landed=false 但 paste sent` = **测试架构假设错误**：宿主 `while{Sleep}` 循环不抽消息 → WinForms Timer 从不 Tick → 焦点信号失效、状态文件陈旧、粘贴全落默认 TB。解法：显式 `DoEvents` 消息泵
+3. 结果不可观测：targets.json BOM、host-state 半写竞态、`slice(0,2)` 把 RTB 切成 "RT"、跨轮基线污染——逐一修复
+**产品结论：粘贴链路（capture→paste_clip→clipboard write→foreground restore→focus handshake→injector Ctrl+V）三轮日志全部正确**（cv.log: write_ok=true, restored=true, target/focus hwnd 与外部校验一致, sent）
+**实测 PASS（13:13 轮 driver.log）**：
+- textbox: landed=true, otherKept=true, **PASS=true**
+- richtextbox: landed=true, otherKept=true, **PASS=true**
+- notepad/chrome: 前两轮被 pid 校验/Chrome 更新弹窗挡住 → 修复（title 发现免 pid、Edge 靶）后由空闲 watcher 自动补跑
