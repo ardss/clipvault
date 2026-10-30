@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.6] - pending release
+
+### Fixed
+
+- The zoom window now shows the full text for oversized copies: bodies above 256 KB are kept in a side file and the list query only carries a ~2000-char preview, so the fetch-on-open condition triggers on `text_path` as well as on the 4096-char truncation mark
+- The installer auto-launches again after install/update: the NSIS hook hardcoded `app.exe`, which silently broke the moment the packaged binary was renamed (a rename the NSIS template explicitly supports); it now uses the packager's own `${MAINBINARYNAME}` define
+
+### Internal
+
+- `cargo fmt` / `clippy -D warnings` / `cargo test` all run from the repository root: a virtual workspace now sits at the root (`members = ["src-tauri"]`), `[profile.release]` moved verbatim to the workspace root (cargo ignores profiles declared in a non-root member, which would have silently dropped `opt-level`/`lto`/`strip` from release builds), `.cargo/config.toml` pins `target-dir` back to `src-tauri/target` so e2e paths, NSIS packaging paths and the incremental cache are untouched, and `Cargo.lock` migrated to the root
+- Builds with a changed identifier (e.g. the `com.clipvault.test` isolation builds used for acceptance) are fully isolated: `build.rs` exports `CV_IDENTIFIER` from `tauri.conf.json` and the data dir, log and paste-handshake channel all follow it
+- The four tests that write the real system clipboard are serialized behind a test-only lock — a parallel-test race could read another test's clipboard write and fail intermittently
+- Clippy-clean under `-D warnings` (the release gate): a `ClipPayload` type alias replaces `get_clip`'s complex tuple return; the watchdog dereferences its `Copy` `Option<Instant>` instead of cloning; the deliberate non-`async` `impl Future + Send` return on the paste command (the very thing its Send assertion tests) carries an explicit `manual_async_fn` allow
+
 ## [0.1.5] - pending release
 
 > The v0.1.4 candidate was superseded before publication (a P1 PNG-capture defect was found in its release build); all of its changes ship in 0.1.5.
