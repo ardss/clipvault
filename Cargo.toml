@@ -1,0 +1,13 @@
+# Workspace root: lets cargo tooling (cargo fmt / metadata / test) run from
+# the repository root, where the crate lives one level down in src-tauri.
+[workspace]
+members = ["src-tauri"]
+resolver = "2"
+
+# Profiles MUST live at the workspace root — cargo warns and ignores them in
+# a non-root member (moved verbatim from src-tauri/Cargo.toml).
+[profile.release]
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
+strip = true

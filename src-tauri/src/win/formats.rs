@@ -96,13 +96,14 @@ pub fn write_clipboard_html(html: &[u8]) -> bool {
     // NO EmptyClipboard here: paste_clip writes CF_UNICODETEXT first and then
     // adds "HTML Format" ALONGSIDE it in the same session — emptying would
     // destroy the plain text that Notepad-style targets read. Stamping the
-    // sequence number attributes the second write to us as well.
+    // sequence number attributes the second write to us as well (stamped
+    // before Close closes the old microsecond race window).
     let ok = set_clipboard_data_raw(fmt, html);
-    unsafe {
-        let _ = CloseClipboard();
-    }
     if ok {
         mark_self_write();
+    }
+    unsafe {
+        let _ = CloseClipboard();
     }
     ok
 }
@@ -186,6 +187,9 @@ mod file_tests {
 
     #[test]
     fn files_roundtrip_via_clipboard() {
+        let _clipboard = super::clipboard_test_lock()
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
         let paths = vec![r"C:\a\test1.txt".to_string(), r"C:\a\test2.txt".to_string()];
         assert!(write_clipboard_files(&paths), "write failed");
         let back = read_clipboard_files().expect("read back failed");
@@ -213,6 +217,9 @@ mod file_tests {
 
     #[test]
     fn png_roundtrip_via_clipboard() {
+        let _clipboard = super::clipboard_test_lock()
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
         let img = image::DynamicImage::ImageRgba8(image::ImageBuffer::from_pixel(
             2,
             2,

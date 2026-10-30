@@ -1,0 +1,5 @@
+# Keep build artifacts where they have always been (src-tauri/target): the
+# e2e script, NSIS packaging paths and docs all reference that location, and
+# the existing incremental cache stays valid. Relative to this config's dir.
+[build]
+target-dir = "src-tauri/target"

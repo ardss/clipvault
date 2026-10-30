@@ -16,19 +16,58 @@ fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
+/// Compile-time identifier (build.rs ← tauri.conf.json): the same constant
+/// the main process uses for cvlog, so a changed identifier isolates the
+/// whole paste channel — no argv/env plumbing needed between the processes.
+const CV_IDENTIFIER: &str = env!("CV_IDENTIFIER");
+
+/// The named event is instance-scoped ("{identifier}-inject"). The old
+/// session-global "ClipVaultInject" was shared by every build in the session:
+/// single-instance does not block different identifiers, so an installed
+/// production instance and an isolated test build could signal each other's
+/// injector and read each other's handshake.
+fn inject_event_name() -> String {
+    format!("{CV_IDENTIFIER}-inject")
+}
+
+/// Handshake dir mirrors the app data dir: <APPDATA>/<identifier> — resolved
+/// from the same compile-time identifier the main process uses for
+/// db/settings/images. None (no APPDATA) makes both sides fail closed: the
+/// old relative-path fallback dropped cv-inject.txt into the process CWD —
+/// unwritable under autostart (every paste rejected) or, worse, outside the
+/// user-ACL'd dir the security premise below depends on.
+fn resolve_inject_dir(appdata: Option<String>) -> Option<std::path::PathBuf> {
+    appdata.map(|d| std::path::Path::new(&d).join(CV_IDENTIFIER))
+}
+
 // A paste is allowed only when the original foreground window is active.
 // Child focus may be unknown (0), but the top-level target must never be 0.
 fn paste_target_matches(want: (isize, isize), actual: (isize, isize)) -> bool {
     want.0 != 0 && actual.0 == want.0 && (want.1 == 0 || actual.1 == want.1)
 }
 
+/// `--alt-tap` helper entry: taps ALT from a separate process and exits.
+/// keybd_event issued from inside the app process is silently swallowed
+/// (the premise this whole module exists on) — the restore path falls back
+/// here when its in-process tap didn't land.
+pub fn helper_alt_tap() -> ! {
+    unsafe {
+        keybd_event(VK_MENU.0 as u8, 0, KEYBD_EVENT_FLAGS(0), 0);
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        keybd_event(VK_MENU.0 as u8, 0, KEYEVENTF_KEYUP, 0);
+    }
+    std::process::exit(0)
+}
+
 /// Runs in a helper process (`app.exe --injector`): waits on the named event
 /// and performs the paste keystroke. Exits when the main app is gone.
 pub fn injector_loop() -> ! {
+    let event_name = inject_event_name();
     unsafe {
-        let name = wide("ClipVaultInject");
+        let name = wide(&event_name);
         let created = CreateEventW(None, false, false, PCWSTR(name.as_ptr()));
         if created.is_err() {
+            cvlog!("[cv-inj] CreateEventW failed — exiting (respawned on demand)");
             std::process::exit(0);
         }
         let Ok(event) = created else {
@@ -97,18 +136,19 @@ fn foreground_focus() -> (isize, isize) {
 
 /// Handshake file lives in the app's own (user-ACL'd) data dir, not TEMP —
 /// any same-user process could rewrite a TEMP file and redirect the paste.
-fn inject_file() -> std::path::PathBuf {
-    let dir = std::env::var("APPDATA")
-        .map(|d| std::path::Path::new(&d).join("com.clipvault.app"))
-        .unwrap_or_else(|_| std::path::PathBuf::from("com.clipvault.app"));
+/// Resolved from the compile-time identifier; None (no APPDATA) → no file.
+fn inject_file() -> Option<std::path::PathBuf> {
+    let dir = resolve_inject_dir(std::env::var("APPDATA").ok())?;
     let _ = std::fs::create_dir_all(&dir);
-    dir.join("cv-inject.txt")
+    Some(dir.join("cv-inject.txt"))
 }
 
 /// (target hwnd, target focus hwnd) written by the main app before signaling.
 /// The file is consumed (deleted) on read so a stale signal can't be replayed.
 fn read_inject_target() -> (isize, isize) {
-    let path = inject_file();
+    let Some(path) = inject_file() else {
+        return (0, 0); // unresolvable dir → unmatched target → paste cancelled
+    };
     if let Ok(content) = std::fs::read_to_string(&path) {
         let _ = std::fs::remove_file(&path);
         let nums: Vec<isize> = content
@@ -142,9 +182,15 @@ fn write_handshake(file: &std::path::Path, target: isize, focus: isize) -> std::
 /// injector can't be reached — the caller must surface that (the panel is
 /// already hidden at that point, so a silent no-op would lose the paste).
 pub fn request_paste_keystroke(target: isize, focus: isize) -> bool {
+    // No APPDATA → no handshake location: refuse (fail closed) instead of
+    // writing a relative path into the process CWD.
+    let Some(file) = inject_file() else {
+        cvlog!("[cv] handshake dir unresolvable (APPDATA unset) — refusing to signal injector");
+        return false;
+    };
     // A failed handshake leaves the previous paste's target file on disk;
     // signalling anyway could send the keystroke to that stale target.
-    if write_handshake(&inject_file(), target, focus).is_err() {
+    if write_handshake(&file, target, focus).is_err() {
         cvlog!("[cv] handshake write failed — refusing to signal injector");
         return false;
     }
@@ -162,8 +208,8 @@ pub fn request_paste_keystroke(target: isize, focus: isize) -> bool {
     }
     // (re)try opening; only cache on success — a failure (injector not yet
     // up, or gone) must stay retryable
+    let name = wide(&inject_event_name());
     let open = || -> Option<isize> {
-        let name = wide("ClipVaultInject");
         unsafe {
             OpenEventW(
                 SYNCHRONIZATION_ACCESS_RIGHTS(0x00100000) | EVENT_MODIFY_STATE,
@@ -193,7 +239,10 @@ pub fn request_paste_keystroke(target: isize, focus: isize) -> bool {
                 .spawn();
             if let Err(e) = r {
                 eprintln!("[cv] injector spawn failed: {e}");
-                let _ = std::fs::write(inject_file().with_extension("spawn.err"), format!("{e}"));
+                cvlog!("[cv] injector spawn failed: {e}");
+                if let Some(f) = inject_file() {
+                    let _ = std::fs::write(f.with_extension("spawn.err"), format!("{e}"));
+                }
             }
         }
         for _ in 0..20 {
@@ -213,6 +262,53 @@ pub fn request_paste_keystroke(target: isize, focus: isize) -> bool {
             ok
         }
         None => false,
+    }
+}
+
+#[cfg(test)]
+mod isolation_tests {
+    /// The named event must be instance-scoped: different-identifier builds
+    /// (installed production + isolated test build) can coexist —
+    /// single-instance does not block them — and must not share the paste
+    /// channel (signals used to cross between instances through one
+    /// session-global "ClipVaultInject" event + one shared handshake file).
+    #[test]
+    fn inject_event_name_is_instance_scoped() {
+        let n = super::inject_event_name();
+        assert!(
+            n.starts_with(super::CV_IDENTIFIER),
+            "event name must derive from the compile-time identifier: {n}"
+        );
+        assert!(n.ends_with("-inject"), "instance-scoped suffix: {n}");
+        assert_ne!(
+            n, "ClipVaultInject",
+            "the session-global legacy name must be gone"
+        );
+        assert_ne!(
+            super::inject_event_name(),
+            format!("{}-inject", "com.clipvault.test"),
+            "another identifier's build must not resolve the same event"
+        );
+    }
+
+    /// Handshake dir mirrors the app data dir: <APPDATA>/<identifier>. No
+    /// APPDATA → None: the paste path must refuse to signal instead of
+    /// dropping cv-inject.txt into the process CWD (unwritable under
+    /// autostart → every paste dead; writable → outside the user-ACL'd dir
+    /// the security premise depends on).
+    #[test]
+    fn handshake_dir_is_identifier_derived_never_relative() {
+        let d = super::resolve_inject_dir(Some("X:\\ad".into())).unwrap();
+        assert_eq!(
+            d,
+            std::path::Path::new("X:\\ad").join(super::CV_IDENTIFIER),
+            "handshake dir must derive from the compile-time identifier"
+        );
+        assert_eq!(
+            super::resolve_inject_dir(None),
+            None,
+            "no APPDATA must yield None (refuse), never a relative path"
+        );
     }
 }
 

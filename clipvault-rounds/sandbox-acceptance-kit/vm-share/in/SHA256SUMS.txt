@@ -1,0 +1,2 @@
+cea5061d16b23d9c6f942b1bd022ac9c80cb39c6e22cdcf539d7034eee40e564  ClipVault_0.1.5_x64-setup.exe
+0ec81a6d7f7c7d40babd2888dd9911c4a5eeb27e6da7b4980a8eaebb65518af1  ClipVault_0.1.5-portable.exe

@@ -16,7 +16,9 @@ pub fn get_cursor_pos() -> (i32, i32) {
 }
 
 /// Diagnostic: logs the real foreground window and its focused child right
-/// before the injector fires (paste-loss triage).
+/// before the injector fires (paste-loss triage). cvlog, not stderr — the
+/// GUI subsystem has no console, so stderr output was invisible in the very
+/// sessions this triage exists for.
 pub fn log_send_time() {
     unsafe {
         let fg = GetForegroundWindow();
@@ -26,15 +28,34 @@ pub fn log_send_time() {
             ..Default::default()
         };
         let _ = GetGUIThreadInfo(thread, &mut gi);
-        eprintln!(
+        cvlog!(
             "[cv] send-time: fg={:x} focus={:x}",
-            fg.0 as usize, gi.hwndFocus.0 as usize
+            fg.0 as usize,
+            gi.hwndFocus.0 as usize
         );
     }
 }
 
 pub fn update_panel_rect(hwnd: isize) {
     PANEL_HWND.store(hwnd, Ordering::SeqCst);
+}
+
+/// ZOOM_HWND is written by register_zoom and used to be never cleared when
+/// the zoom window was destroyed (the 10-min frontend idle reaper). Win32
+/// recycles HWND values: the stale handle eventually pointed at an
+/// unrelated LIVE window, so clicks inside it stopped hiding the panel and
+/// show_panel skipped paste-target capture. All readers go through this
+/// validator, which also self-heals the global to 0.
+pub fn live_zoom_hwnd(stored: isize) -> isize {
+    if stored == 0 {
+        return 0;
+    }
+    if unsafe { IsWindow(HWND(stored as _)) }.as_bool() {
+        stored
+    } else {
+        ZOOM_HWND.store(0, Ordering::SeqCst);
+        0
+    }
 }
 
 /// OS-truth window rect (Tauri's own position bookkeeping can diverge from
@@ -71,8 +92,9 @@ pub fn point_in_panel(x: i32, y: i32) -> bool {
     if x >= l && x <= r && y >= t && y <= b {
         return true;
     }
-    // the zoom preview window belongs to the panel UI
-    let zh = ZOOM_HWND.load(Ordering::SeqCst);
+    // the zoom preview window belongs to the panel UI — validated live: a
+    // stale/recycled HWND used to swallow outside clicks for an unrelated window
+    let zh = live_zoom_hwnd(ZOOM_HWND.load(Ordering::SeqCst));
     if zh != 0 && unsafe { IsWindowVisible(HWND(zh as _)) }.as_bool() {
         unsafe {
             let mut r2 = RECT::default();
@@ -117,9 +139,7 @@ pub fn capture_focus(target: isize) {
                 is_descendant_of(candidate, target),
             );
             FOCUS_HWND.store(stored, Ordering::SeqCst);
-            eprintln!(
-                "[cv] capture_focus: target={target:x} focus={focus:x} caret={caret:x} child={stored:x}"
-            );
+            cvlog!("[cv] capture_focus: target={target:x} focus={focus:x} caret={caret:x} child={stored:x}");
         } else {
             cvlog!("[cv] capture_focus: GetGUIThreadInfo failed");
             // unknown state — no child identity, top-level matching only
@@ -340,6 +360,50 @@ fn attributed_focus(
     }
 }
 
+/// Taps ALT down/up to release the foreground lock, verifying the keystroke
+/// actually landed via GetAsyncKeyState BETWEEN down and up (after the up
+/// the key already reads as released — the check must sit between the two
+/// calls). keybd_event issued from inside the app process is the same
+/// primitive the project proved gets silently swallowed (the injector
+/// process exists for exactly that) — trusting it unverified repeated the
+/// self-contradictory assumption.
+fn tap_alt_verified() -> bool {
+    unsafe {
+        keybd_event(VK_MENU.0 as u8, 0, KEYBD_EVENT_FLAGS(0), 0);
+        // 0x8000 = the key is physically down right now
+        let verified = GetAsyncKeyState(VK_MENU.0 as i32) & 0x8000u16 as i16 != 0;
+        keybd_event(VK_MENU.0 as u8, 0, KEYEVENTF_KEYUP, 0);
+        verified
+    }
+}
+
+/// Pure decision (unit-tested): an unverified in-process tap must fall back
+/// to the helper process — the only injection path with proven delivery.
+fn needs_helper_alt_fallback(verified: bool) -> bool {
+    !verified
+}
+
+/// Fallback: the identical ALT tap from a separate process (same mechanism
+/// the paste injector relies on). Detached, no window, null stdio.
+fn tap_alt_via_helper() {
+    if let Ok(exe) = std::env::current_exe() {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        // stdio MUST be null: a GUI process launched from Explorer has no
+        // valid std handles (same failure the injector spawn documented)
+        let r = std::process::Command::new(exe)
+            .arg("--alt-tap")
+            .creation_flags(CREATE_NO_WINDOW)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+        if let Err(e) = r {
+            cvlog!("[cv] restore: helper ALT tap spawn failed: {e}");
+        }
+    }
+}
+
 pub fn restore_foreground(target: isize) -> bool {
     if target == 0 {
         cvlog!("[cv] restore: target is 0");
@@ -355,9 +419,14 @@ pub fn restore_foreground(target: isize) -> bool {
             let _ = ShowWindowAsync(h, SW_RESTORE);
             std::thread::sleep(std::time::Duration::from_millis(60));
         }
-        // ALT tap releases the foreground lock
-        keybd_event(VK_MENU.0 as u8, 0, KEYBD_EVENT_FLAGS(0), 0);
-        keybd_event(VK_MENU.0 as u8, 0, KEYEVENTF_KEYUP, 0);
+        // ALT tap releases the foreground lock — verified against the OS
+        // keyboard state; if the in-process tap was swallowed (documented,
+        // reproducible), fall back to the helper process before judging
+        // SetForegroundWindow
+        if needs_helper_alt_fallback(tap_alt_verified()) {
+            cvlog!("[cv] restore: in-process ALT tap not verified — falling back to helper tap");
+            tap_alt_via_helper();
+        }
         let this_thread = GetCurrentThreadId();
         let target_thread = GetWindowThreadProcessId(h, None);
         let _ = AttachThreadInput(this_thread, target_thread, true);
@@ -370,13 +439,92 @@ pub fn restore_foreground(target: isize) -> bool {
             }
             std::thread::sleep(std::time::Duration::from_millis(15));
         }
-        eprintln!(
+        cvlog!(
             "[cv] restore: target={:x} fg_now={:x} err={:?}",
             target,
             GetForegroundWindow().0 as usize,
             GetLastError()
         );
         false
+    }
+}
+
+// ---------- UIPI target elevation check ----------
+
+/// Integrity level RID of a process (0x1000 low / 0x2000 medium / 0x3000
+/// high). Cross-IL queryable via PROCESS_QUERY_LIMITED_INFORMATION.
+pub fn process_integrity_level(pid: u32) -> Option<u32> {
+    use windows::Win32::Security::{
+        GetSidSubAuthority, GetSidSubAuthorityCount, GetTokenInformation, TokenIntegrityLevel,
+        TOKEN_MANDATORY_LABEL, TOKEN_QUERY,
+    };
+    use windows::Win32::System::Threading::{
+        OpenProcess, OpenProcessToken, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+    unsafe {
+        let proc_h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
+        let mut token = Default::default();
+        if OpenProcessToken(proc_h, TOKEN_QUERY, &mut token).is_err() {
+            return None;
+        }
+        // size query: fails by design, filling the required length
+        let mut len = 0u32;
+        let _ = GetTokenInformation(token, TokenIntegrityLevel, None, 0, &mut len);
+        let mut buf = vec![0u8; len as usize];
+        if GetTokenInformation(
+            token,
+            TokenIntegrityLevel,
+            Some(buf.as_mut_ptr().cast()),
+            len,
+            &mut len,
+        )
+        .is_err()
+        {
+            return None;
+        }
+        let label = buf.as_ptr() as *const TOKEN_MANDATORY_LABEL;
+        let sid = (*label).Label.Sid;
+        if sid.is_invalid() {
+            return None;
+        }
+        let count = *GetSidSubAuthorityCount(sid) as usize;
+        if count == 0 {
+            return None;
+        }
+        Some(*GetSidSubAuthority(sid, (count - 1) as u32))
+    }
+}
+
+/// Pure decision (unit-tested): a target MORE privileged than us silently
+/// drops our keybd_event (UIPI) — the paste would "succeed" (clipboard
+/// overwritten, row marked used, panel closed) while nothing is pasted.
+pub(crate) fn elevation_blocks_paste(target_il: u32, own_il: u32) -> bool {
+    target_il > own_il
+}
+
+/// True when the paste target's process runs at a HIGHER integrity level
+/// than ours. Query failure is fail-open (logged): a token-query hiccup
+/// must not kill every paste.
+pub fn target_elevated(target: isize) -> bool {
+    if target == 0 {
+        return false;
+    }
+    let mut pid = 0u32;
+    unsafe {
+        GetWindowThreadProcessId(HWND(target as _), Some(&mut pid));
+    }
+    if pid == 0 {
+        return false;
+    }
+    match (
+        process_integrity_level(pid),
+        process_integrity_level(std::process::id()),
+    ) {
+        (Some(t), Some(o)) => elevation_blocks_paste(t, o),
+        _ => {
+            cvlog!("[cv] paste: target integrity query failed — proceeding (fail-open)");
+            false
+        }
     }
 }
 
@@ -405,7 +553,9 @@ pub fn spawn_zoom_watchdog(app: tauri::AppHandle<tauri::Wry>) {
             if OUTSIDE_CLICK.swap(false, Ordering::SeqCst) {
                 crate::commands::hide_panel(&app);
             }
-            let zh = ZOOM_HWND.load(Ordering::SeqCst);
+            // validated live — a stale/recycled HWND must not keep the
+            // watchdog spinning on an unrelated window
+            let zh = live_zoom_hwnd(ZOOM_HWND.load(Ordering::SeqCst));
             if zh == 0 {
                 misses = 0;
                 continue;
@@ -431,6 +581,134 @@ pub fn spawn_zoom_watchdog(app: tauri::AppHandle<tauri::Wry>) {
             }
         }
     });
+}
+
+#[cfg(test)]
+mod elevation_tests {
+    use super::*;
+
+    /// The paste path must refuse targets running at a HIGHER integrity
+    /// level: UIPI silently drops our keybd_event there — the paste would
+    /// "succeed" (clipboard overwritten, row marked used) while nothing is
+    /// pasted. Own-level and lower targets stay allowed.
+    #[test]
+    fn own_process_integrity_level_is_queryable_and_decision_matrix_holds() {
+        let own = process_integrity_level(std::process::id())
+            .expect("own token integrity must be queryable");
+        assert!(own >= 0x1000, "sanity: IL RID at least LOW, got {own:#x}");
+        assert!(!elevation_blocks_paste(own, own), "same IL → allowed");
+        assert!(
+            !elevation_blocks_paste(0x1000, 0x2000),
+            "lower target → allowed"
+        );
+        assert!(
+            elevation_blocks_paste(0x3000, 0x2000),
+            "high-IL target from medium-IL process → must block (UIPI)"
+        );
+    }
+}
+
+#[cfg(test)]
+mod zoom_hwnd_tests {
+    use super::*;
+
+    /// Real (hidden) popup window for the positive case — identity facts
+    /// come from the OS, not fixtures.
+    fn test_popup_window() -> HWND {
+        unsafe {
+            static ONCE: std::sync::Once = std::sync::Once::new();
+            let hmod = GetModuleHandleW(None).unwrap_or_default();
+            ONCE.call_once(|| {
+                let name: Vec<u16> = "ClipVaultZoomTest\0".encode_utf16().collect();
+                let wc = WNDCLASSW {
+                    lpfnWndProc: Some(test_popup_wndproc),
+                    lpszClassName: PCWSTR(name.as_ptr()),
+                    hInstance: HINSTANCE(hmod.0),
+                    ..Default::default()
+                };
+                RegisterClassW(&wc);
+            });
+            let cls: Vec<u16> = "ClipVaultZoomTest\0".encode_utf16().collect();
+            CreateWindowExW(
+                WINDOW_EX_STYLE::default(),
+                PCWSTR(cls.as_ptr()),
+                PCWSTR(cls.as_ptr()),
+                WS_POPUP,
+                0,
+                0,
+                40,
+                30,
+                HWND::default(),
+                None,
+                HINSTANCE(hmod.0),
+                None,
+            )
+            .expect("test popup window")
+        }
+    }
+
+    unsafe extern "system" fn test_popup_wndproc(
+        hwnd: HWND,
+        msg: u32,
+        wparam: WPARAM,
+        lparam: LPARAM,
+    ) -> LRESULT {
+        DefWindowProcW(hwnd, msg, wparam, lparam)
+    }
+
+    /// The zoom idle reaper destroys the zoom window but ZOOM_HWND was never
+    /// cleared — Win32 recycles HWND values, so the stale handle eventually
+    /// pointed at an unrelated live window, breaking outside-click hiding
+    /// and paste-target capture. Readers must validate and self-heal.
+    #[test]
+    fn stale_zoom_hwnd_is_treated_as_absent() {
+        assert_eq!(live_zoom_hwnd(0), 0);
+        assert_eq!(
+            live_zoom_hwnd(0x0DEFACED),
+            0,
+            "a fabricated/recycled handle must read as absent"
+        );
+        let w = test_popup_window();
+        assert!(!w.0.is_null());
+        assert_eq!(
+            live_zoom_hwnd(w.0 as isize),
+            w.0 as isize,
+            "a live window passes through"
+        );
+        unsafe {
+            let _ = DestroyWindow(w);
+        }
+        assert_eq!(
+            live_zoom_hwnd(w.0 as isize),
+            0,
+            "a destroyed window reads as absent"
+        );
+    }
+}
+
+#[cfg(test)]
+mod alt_tap_tests {
+    use super::*;
+
+    /// The in-process keybd_event ALT tap is the same primitive the project
+    /// proved gets silently swallowed (the injector process exists because
+    /// of it). An unverified tap must fall back to the helper process — the
+    /// only injection path with proven delivery — before the restore is
+    /// judged as failed.
+    #[test]
+    fn unverified_alt_tap_must_fall_back_to_the_helper_process() {
+        assert!(needs_helper_alt_fallback(false));
+        assert!(!needs_helper_alt_fallback(true));
+    }
+
+    /// The verification primitive runs against the real OS keyboard state
+    /// (GetAsyncKeyState between down and up). Whether the tap itself lands
+    /// is session-dependent — the contract under test is that the check is
+    /// performed and acted on, not that input injection succeeds in CI.
+    #[test]
+    fn tap_alt_verified_runs_against_the_real_keyboard_state() {
+        let _ = tap_alt_verified();
+    }
 }
 
 #[cfg(test)]

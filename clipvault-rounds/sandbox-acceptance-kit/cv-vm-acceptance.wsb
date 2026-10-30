@@ -1,0 +1,20 @@
+<Configuration>
+  <!-- ClipVault v0.1.5 isolated acceptance (GPT CONDITIONAL APPROVE 2026-10-27):
+       clipboard redirection DISABLED (host clipboard isolation),
+       networking DISABLED (installer+test assets come only via mapped folder),
+       synthetic input runs ONLY inside the sandbox, never on the host desktop. -->
+  <MappedFolders>
+    <MappedFolder>
+      <HostFolder>K:\Project\1-Active-Projects\clipvault\clipvault-rounds\sandbox-acceptance-kit\vm-share</HostFolder>
+      <ReadOnly>false</ReadOnly>
+    </MappedFolder>
+  </MappedFolders>
+  <ClipboardRedirection>Disable</ClipboardRedirection>
+  <Networking>Disable</Networking>
+  <vGPU>Disable</vGPU>
+  <PrinterRedirection>Disable</PrinterRedirection>
+  <AudioInput>Disable</AudioInput>
+  <LogonCommand>
+    <Command>cmd /c start "" cmd /K "C:\Users\WDAGUtilityAccount\Desktop\vm-share\vm-run.cmd"</Command>
+  </LogonCommand>
+</Configuration>

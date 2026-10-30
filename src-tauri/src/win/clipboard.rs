@@ -48,26 +48,43 @@ pub(crate) fn read_clipboard_bytes(fmt: u32) -> Option<Vec<u8>> {
     }
 }
 
-/// Sets one format on an ALREADY-OPEN clipboard. The allocated global is
-/// released on failure and handed to the system on success.
-pub(crate) fn set_clipboard_data_raw(fmt: u32, bytes: &[u8]) -> bool {
+/// Allocates a GMEM_MOVEABLE block holding `bytes` — NOT yet owned by the
+/// clipboard (the caller frees it on failure). Allocation is the likely
+/// failure point for large images (up to ~400MB RGBA), so multi-format
+/// writers allocate BEFORE EmptyClipboard: a failure then cannot leave the
+/// user's previous clipboard destroyed.
+pub(crate) fn alloc_global(bytes: &[u8]) -> Option<HGLOBAL> {
     unsafe {
-        let h = match GlobalAlloc(GMEM_MOVEABLE, bytes.len()) {
-            Ok(h) => h,
-            Err(_) => return false,
-        };
+        let h = GlobalAlloc(GMEM_MOVEABLE, bytes.len()).ok()?;
         let ptr = GlobalLock(h) as *mut u8;
         if ptr.is_null() {
             let _ = GlobalFree(h);
-            return false;
+            return None;
         }
         std::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr, bytes.len());
         let _ = GlobalUnlock(h);
+        Some(h)
+    }
+}
+
+/// Hands a pre-allocated block to the ALREADY-OPEN clipboard. Ownership
+/// transfers to the system on success; the block is freed on failure.
+pub(crate) fn set_clipboard_data_prealloc(fmt: u32, h: HGLOBAL) -> bool {
+    unsafe {
         let ok = SetClipboardData(fmt, HANDLE(h.0)).is_ok();
         if !ok {
             let _ = GlobalFree(h);
         }
         ok
+    }
+}
+
+/// Sets one format on an ALREADY-OPEN clipboard. The allocated global is
+/// released on failure and handed to the system on success.
+pub(crate) fn set_clipboard_data_raw(fmt: u32, bytes: &[u8]) -> bool {
+    match alloc_global(bytes) {
+        Some(h) => set_clipboard_data_prealloc(fmt, h),
+        None => false,
     }
 }
 
@@ -81,11 +98,15 @@ pub(crate) fn write_clipboard_single(fmt: u32, bytes: &[u8]) -> bool {
         let _ = EmptyClipboard();
     }
     let ok = set_clipboard_data_raw(fmt, bytes);
-    unsafe {
-        let _ = CloseClipboard();
-    }
+    // stamp BEFORE closing: SetClipboardData already bumped the sequence
+    // number, and stamping inside the open session closes the microsecond
+    // gap where the capture worker could read the old number and treat our
+    // write as external
     if ok {
         mark_self_write();
+    }
+    unsafe {
+        let _ = CloseClipboard();
     }
     ok
 }
@@ -172,23 +193,43 @@ pub fn write_clipboard_png(png: &[u8]) -> bool {
     }
     let png_name: Vec<u16> = "PNG\0".encode_utf16().collect();
     let png_fmt = unsafe { RegisterClipboardFormatW(PCWSTR(png_name.as_ptr())) };
+    // allocate BOTH payloads BEFORE opening/emptying the clipboard: from the
+    // first failure point on, the user's previous clipboard is untouched
+    let Some(h_dib) = alloc_global(&dib) else {
+        return false;
+    };
+    let h_png = if png_fmt != 0 {
+        alloc_global(png)
+    } else {
+        None
+    };
     if !open_clipboard_retry() {
+        unsafe {
+            let _ = GlobalFree(h_dib);
+            if let Some(h) = h_png {
+                let _ = GlobalFree(h);
+            }
+        }
         return false;
     }
     unsafe {
         let _ = EmptyClipboard();
     }
-    // two formats in one open session: set_clipboard_data_raw without
-    // close/stamp so both land before we hand the clipboard back
-    let ok_dib = set_clipboard_data_raw(CF_DIB, &dib);
-    if png_fmt != 0 {
-        set_clipboard_data_raw(png_fmt, png);
+    // two formats in one open session: set without close/stamp so both land
+    // before we hand the clipboard back
+    let ok_dib = set_clipboard_data_prealloc(CF_DIB, h_dib);
+    let ok_png = h_png.is_some_and(|h| set_clipboard_data_prealloc(png_fmt, h));
+    if ok_dib || ok_png {
+        // anything that landed is OURS — stamp even on a partial failure so
+        // the capture worker never echoes our half-written clipboard back as
+        // a fresh external clip
+        mark_self_write();
     }
     unsafe {
         let _ = CloseClipboard();
     }
-    if ok_dib {
-        mark_self_write();
+    if !ok_dib && ok_png {
+        cvlog!("[cv] clipboard: partial write — PNG format landed without CF_DIB");
     }
     ok_dib
 }
@@ -215,4 +256,42 @@ pub fn mark_self_write() {
 
 pub fn is_self_write() -> bool {
     SELF_WRITE_SEQ.load(Ordering::SeqCst) == unsafe { GetClipboardSequenceNumber() } as isize
+}
+
+#[cfg(test)]
+mod clipboard_atomicity_tests {
+    /// A failed multi-format write must not destroy the previous clipboard:
+    /// garbage PNG bytes fail DECODE, which happens before the clipboard is
+    /// even opened — the sentinel must survive. (The DIB/PNG allocations are
+    /// likewise made before EmptyClipboard, so an allocation failure under
+    /// memory pressure can no longer leave a cleared clipboard behind.)
+    #[test]
+    fn failed_png_write_never_destroys_the_previous_clipboard() {
+        let _clipboard = super::clipboard_test_lock()
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        assert!(
+            super::write_clipboard_text("SENTINEL-KEEP"),
+            "seed clipboard"
+        );
+        assert!(!super::write_clipboard_png(b"not a png at all"));
+        assert_eq!(
+            super::read_clipboard_text().as_deref(),
+            Some("SENTINEL-KEEP"),
+            "previous clipboard content must survive a failed write"
+        );
+    }
+
+    /// The pre-allocation primitive: alloc → contents intact → free.
+    #[test]
+    fn alloc_global_roundtrip_preserves_bytes() {
+        let h = super::alloc_global(b"HELLO").expect("alloc must succeed");
+        unsafe {
+            let ptr = super::GlobalLock(h) as *const u8;
+            assert!(!ptr.is_null());
+            assert_eq!(std::slice::from_raw_parts(ptr, 5), b"HELLO");
+            let _ = super::GlobalUnlock(h);
+            let _ = super::GlobalFree(h);
+        }
+    }
 }

@@ -89,6 +89,94 @@ fn log_paste_cancel(reason: &str, target: isize, child: isize) {
     cvlog!("[cv] paste cancelled: {reason} #{n} target={target:x} child={child:x}");
 }
 
+/// The text that goes on the system clipboard for a text row. Oversized rows
+/// (>256KB) keep the full text in a side file — the content column only ever
+/// holds a 2000-char preview, so pasting the stored content would silently
+/// truncate the user's paste. A missing/unreadable side file is a loud error.
+fn oversized_text_payload(text_path: Option<&str>, stored_content: &str) -> Result<String, String> {
+    match text_path {
+        Some(p) => {
+            let full = std::fs::read_to_string(p).unwrap_or_default();
+            if full.is_empty() {
+                Err("clip content file is gone".into())
+            } else {
+                Ok(full)
+            }
+        }
+        None => Ok(stored_content.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod paste_threading_tests {
+    /// P0-deadlock-class regression guard. A SYNC `#[tauri::command]` runs
+    /// inline on the WebView2 host thread; blocking there deadlocks every
+    /// later IPC (the documented P0 "paste is dead" bug). paste_clip sleeps
+    /// up to ~1.4s in focus-retry loops and must stay async so tauri spawns
+    /// it on the IPC runtime thread (create_zoom precedent). Compile-only:
+    /// `.await` below fails to compile the moment paste_clip is a plain
+    /// `fn`. Deliberately NOT an `async fn` itself: the explicit
+    /// `impl Future + Send` return type IS the Send-spawnability assertion
+    /// under test (clippy::manual_async_fn allowed on purpose).
+    #[allow(clippy::manual_async_fn)]
+    fn paste_clip_future<'a>(
+        app: tauri::AppHandle,
+        state: tauri::State<'a, crate::db::Db>,
+        id: i64,
+    ) -> impl std::future::Future<Output = Result<(), String>> + Send + 'a {
+        async move { super::paste_clip(app, state, id).await }
+    }
+
+    #[test]
+    fn paste_clip_is_an_async_command_running_off_the_main_thread() {
+        // referencing the function forces the type check above
+        let _probe = paste_clip_future;
+    }
+}
+
+#[cfg(test)]
+mod paste_payload_tests {
+    /// Pasting a >256KB copy must put the FULL side-file text on the system
+    /// clipboard — the old branch guarded on image_path (never set for text
+    /// rows) so the 2000-char preview went out instead, silently truncating
+    /// the user's paste while replacing their clipboard.
+    #[test]
+    fn oversized_text_pastes_the_full_side_file_not_the_preview() {
+        let dir = std::env::temp_dir().join(format!(
+            "cv-payload-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let full = format!("{}-TAIL", "A".repeat(300 * 1024));
+        let side = dir.join("big.txt");
+        std::fs::write(&side, &full).unwrap();
+        let preview: String = full.chars().take(2000).collect();
+
+        let got =
+            super::oversized_text_payload(side.to_str(), &preview).expect("side file readable");
+        assert_eq!(got, full, "paste payload must be the full side-file text");
+
+        // gone file (deleted between listing and paste) → loud error, never
+        // a silent truncated paste
+        assert!(super::oversized_text_payload(
+            Some(dir.join("gone.txt").to_str().unwrap()),
+            &preview
+        )
+        .is_err());
+
+        // inline rows carry their stored content
+        assert_eq!(
+            super::oversized_text_payload(None, "inline text").unwrap(),
+            "inline text"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
 #[cfg(test)]
 mod paste_target_tests {
     use super::{should_capture_paste_target, validated_paste_target};
@@ -207,7 +295,9 @@ pub(crate) fn show_panel(app: &AppHandle) {
         cvlog!("[cv] panel url: {:?}", w.url());
         let fg = win::get_foreground();
         let panel_hwnd = w.hwnd().map(|h| h.0 as isize).unwrap_or(0);
-        let zoom_hwnd = win::ZOOM_HWND.load(Ordering::SeqCst);
+        // validated live: a stale/recycled zoom HWND must not suppress paste-
+        // target capture for an unrelated window that reused the value
+        let zoom_hwnd = win::live_zoom_hwnd(win::ZOOM_HWND.load(Ordering::SeqCst));
         if should_capture_paste_target(fg, panel_hwnd, zoom_hwnd) {
             win::PASTE_TARGET.store(fg, Ordering::SeqCst);
             win::PASTE_TARGET_PID.store(window_pid(fg) as usize, Ordering::SeqCst);
@@ -409,11 +499,9 @@ pub(crate) fn report_error(app: AppHandle, msg: String) {
 pub(crate) fn heartbeat() {
     // deliberately NOT logged: the 5s IPC ping once wrote a line per call and
     // rotated cv.log within ~12 hours, destroying real diagnostics (audit P2-3)
-    let t = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0);
-    crate::HEARTBEAT.store(t, Ordering::SeqCst);
+    // monotonic Instant: the watchdog's elapsed comparison is immune to
+    // sleep/resume wall-clock jumps and NTP corrections
+    *crate::LAST_BEAT.lock().unwrap_or_else(|p| p.into_inner()) = Some(std::time::Instant::now());
 }
 
 #[tauri::command]
@@ -457,13 +545,19 @@ pub(crate) fn clear_history(app: AppHandle, state: tauri::State<db::Db>) -> Resu
     Ok(n)
 }
 
+/// async => tauri spawns this on the IPC runtime thread (same pattern as
+/// create_zoom). It MUST NOT run on the main/WebView2-host thread: this body
+/// sleeps up to ~1.4s in focus-retry loops, and a blocked host thread
+/// deadlocks every later IPC (the P0 "paste is dead" bug class). The Win32
+/// focus/injection sequence is legal from a worker thread — SetFocus rides
+/// AttachThreadInput, and the actual keystroke goes to the injector process.
 #[tauri::command]
-pub(crate) fn paste_clip(
+pub(crate) async fn paste_clip(
     app: AppHandle,
-    state: tauri::State<db::Db>,
+    state: tauri::State<'_, db::Db>,
     id: i64,
 ) -> Result<(), String> {
-    let (kind, content, image_path) = {
+    let (kind, content, image_path, text_path) = {
         let conn = state.0.lock().unwrap_or_else(|p| p.into_inner());
         db::get_clip(&conn, id)
     }?;
@@ -472,6 +566,17 @@ pub(crate) fn paste_clip(
     // outdated target must also match the owner pid captured with it.
     let want_pid = win::PASTE_TARGET_PID.load(Ordering::SeqCst) as u32;
     let target = validated_paste_target(win::PASTE_TARGET.load(Ordering::SeqCst), want_pid)?;
+    // UIPI: a keybd_event from our (medium-IL) process is silently dropped by
+    // a higher-integrity foreground target — the paste would "succeed"
+    // (clipboard overwritten, row marked used, panel closed) while nothing is
+    // pasted. Refuse BEFORE touching the system clipboard, with a reason the
+    // UI surfaces.
+    if win::target_elevated(target) {
+        cvlog!(
+            "[cv] paste cancelled: target_elevated target={target:x} (UIPI blocks synthetic input)"
+        );
+        return Err("paste target is elevated — UIPI blocks the synthetic keystroke".into());
+    }
     let ok = match kind.as_str() {
         "image" => {
             let png = std::fs::read(image_path.unwrap_or_default()).unwrap_or_default();
@@ -487,14 +592,15 @@ pub(crate) fn paste_clip(
             win::write_clipboard_text(&plain)
                 && (html.is_empty() || win::write_clipboard_html(&html))
         }
-        "text" if image_path.is_some() => {
-            // oversized text stored in a side file; an empty read means the
-            // row's file was deleted between listing and paste (e.g. by
-            // clear_history) — fail loudly instead of pasting nothing
-            let full = std::fs::read_to_string(image_path.unwrap_or_default()).unwrap_or_default();
-            if full.is_empty() {
-                return Err("clip content file is gone".into());
-            }
+        "text" => {
+            // oversized rows store the full text in a side file; the content
+            // column only holds a 2000-char preview. An empty/unreadable read
+            // means the row's file was deleted between listing and paste
+            // (e.g. by clear_history) — fail loudly instead of pasting nothing.
+            let full = oversized_text_payload(
+                text_path.as_deref(),
+                content.as_deref().unwrap_or_default(),
+            )?;
             win::write_clipboard_text(&full)
         }
         _ => win::write_clipboard_text(&content.unwrap_or_default()),

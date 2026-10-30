@@ -47,11 +47,11 @@ pub use formats::{
     log_clipboard_formats, read_clipboard_files, read_clipboard_html, read_clipboard_png_raw,
     write_clipboard_files, write_clipboard_html,
 };
-pub use injector::{focus_hwnd_take, injector_loop, request_paste_keystroke};
+pub use injector::{focus_hwnd_take, helper_alt_tap, injector_loop, request_paste_keystroke};
 pub use window::{
     capture_focus, current_focus_attribution, get_cursor_pos, get_foreground, get_window_rect,
-    log_send_time, point_in_panel, restore_focus_verified, restore_foreground, spawn_zoom_watchdog,
-    update_panel_rect, FocusRestore,
+    live_zoom_hwnd, log_send_time, point_in_panel, restore_focus_verified, restore_foreground,
+    spawn_zoom_watchdog, target_elevated, update_panel_rect, FocusRestore,
 };
 
 // ---------- clipboard listener thread ----------
@@ -97,7 +97,9 @@ pub fn spawn_clipboard_listener<F: FnMut() + Send + 'static>(mut on_change: F) {
     std::thread::spawn(move || unsafe {
         cvlog!("[cv] listener thread started");
         let Ok(hmod) = GetModuleHandleW(None) else {
-            eprintln!("[cv] listener: GetModuleHandleW failed — capture disabled");
+            // capture dies silently in cv.log unless THIS is the record —
+            // stderr is invisible for a GUI app
+            cvlog!("[cv] listener: GetModuleHandleW failed — capture disabled");
             return;
         };
         let class_name: Vec<u16> = "ClipVaultListener\0".encode_utf16().collect();
@@ -130,14 +132,14 @@ pub fn spawn_clipboard_listener<F: FnMut() + Send + 'static>(mut on_change: F) {
             if hwnd.is_ok() {
                 break;
             }
-            eprintln!(
+            cvlog!(
                 "[cv] listener window create failed (attempt {})",
                 attempt + 1
             );
             std::thread::sleep(std::time::Duration::from_secs(2));
         }
         let Ok(hwnd) = hwnd else {
-            eprintln!("[cv] listener: window creation failed after retries — capture disabled");
+            cvlog!("[cv] listener: window creation failed after retries — capture disabled");
             return;
         };
         if AddClipboardFormatListener(hwnd).is_ok() {
@@ -171,11 +173,19 @@ pub fn spawn_clipboard_listener<F: FnMut() + Send + 'static>(mut on_change: F) {
 /// title "<identifier>-siw" and force-shows it — it leaks into Alt-Tab and
 /// Task View. Hiding it is lossless: second instances find it by class name
 /// ("<identifier>-sic") to deliver WM_COPYDATA, which works regardless of
-/// visibility.
-pub fn hide_single_instance_window() {
+/// visibility. The pair is derived from the RUNTIME identifier (the plugin
+/// uses app.config().identifier) — a hardcoded copy broke the moment the
+/// identifier changed and misreported the miss as "plugin timing?".
+fn single_instance_window_names(identifier: &str) -> (Vec<u16>, Vec<u16>) {
+    (
+        format!("{identifier}-sic\0").encode_utf16().collect(),
+        format!("{identifier}-siw\0").encode_utf16().collect(),
+    )
+}
+
+pub fn hide_single_instance_window(identifier: &str) {
     unsafe {
-        let class: Vec<u16> = "com.clipvault.app-sic\0".encode_utf16().collect();
-        let name: Vec<u16> = "com.clipvault.app-siw\0".encode_utf16().collect();
+        let (class, name) = single_instance_window_names(identifier);
         match FindWindowW(PCWSTR(class.as_ptr()), PCWSTR(name.as_ptr())) {
             Ok(h) if !h.0.is_null() => {
                 let _ = ShowWindow(h, SW_HIDE);
@@ -282,6 +292,41 @@ pub fn set_mouse_hook(on: bool) {
 }
 
 #[cfg(test)]
+mod single_instance_tests {
+    /// The plugin derives its window class/name from app.config().identifier
+    /// ("{id}-sic"/"{id}-siw"). Our hide call must derive the same pair from
+    /// the runtime identifier — a hardcoded copy breaks the moment the
+    /// identifier changes (window leaks into Alt-Tab, "plugin timing?"  false
+    /// alarm on every launch).
+    #[test]
+    fn single_instance_window_names_follow_the_runtime_identifier() {
+        let decode = |v: &[u16]| {
+            String::from_utf16(&v[..v.len() - 1]).unwrap() // drop the NUL
+        };
+        let (c, n) = super::single_instance_window_names("com.clipvault.test");
+        assert_eq!(decode(&c), "com.clipvault.test-sic");
+        assert_eq!(decode(&n), "com.clipvault.test-siw");
+        let (c2, _) = super::single_instance_window_names("com.clipvault.app");
+        assert_ne!(
+            decode(&c),
+            decode(&c2),
+            "different identifiers must yield different window names"
+        );
+    }
+}
+
+/// Serializes tests that mutate the REAL system clipboard. They run in
+/// parallel inside one process and clobber each other's content mid-assert
+/// (observed: failed_png_write_never_destroys_the_previous_clipboard read
+/// another test's payload as its sentinel). Test-only; production paths are
+/// serialized by the OS clipboard itself.
+#[cfg(test)]
+pub(crate) fn clipboard_test_lock() -> &'static StdMutex<()> {
+    static LOCK: StdMutex<()> = StdMutex::new(());
+    &LOCK
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -303,6 +348,9 @@ mod tests {
 
     #[test]
     fn png_roundtrip_via_clipboard() {
+        let _clipboard = clipboard_test_lock()
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
         let png = solid_png(60, 40, [255, 0, 0, 255]);
         assert!(write_clipboard_png(&png), "write failed");
         let dib = read_clipboard_dib_vec().expect("no dib back");

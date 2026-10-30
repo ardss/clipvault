@@ -278,8 +278,10 @@ async function openZoom(c, e) {
     ? { type: 'image', src: thumb(c) }
     : { type: 'text', text: (c.content || c.preview || '').trim() }
   // the list query truncates content at 4096 chars — fetch the full body
-  // for long texts before showing the zoom window
-  if (c.kind !== 'image' && (c.content || '').length >= 4096) {
+  // for long texts before showing the zoom window. Oversized (>256KB) copies
+  // keep the full text in a side file: their content column is only a
+  // 2000-char preview, so text_path must trigger the fetch too.
+  if (c.kind !== 'image' && ((c.content || '').length >= 4096 || c.text_path)) {
     try { payload.text = ((await invoke('clip_content', { id: c.id })) || '').trim() } catch {}
   }
   if (requestId !== zoomRequestId) return // older async hover must not replace the newest

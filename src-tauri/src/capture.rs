@@ -23,20 +23,24 @@ pub(crate) fn save_image_dib(app: &AppHandle, dib: &[u8]) -> Option<(String, u32
 }
 
 /// Common persistence: content hash → image file + 256px thumbnail. Callers
-/// have already decoded to normalized PNG bytes.
+/// have already decoded to normalized PNG bytes. The file-name stem is the
+/// spec FNV-1a hash (db::content_hash_bytes) — stable across processes AND
+/// toolchains, so re-copying old content keeps hitting the same file
+/// (DefaultHasher made no cross-version promise: a rustc upgrade forked the
+/// namespace into duplicate rows + duplicate files).
 fn persist_image(app: &AppHandle, bytes: &[u8], w: u32, h: u32) -> Option<(String, u32, u32)> {
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    std::hash::Hash::hash(&bytes, &mut hasher);
-    let hash = std::hash::Hasher::finish(&hasher);
+    let hash = db::content_hash_bytes(bytes);
     let dir = app.path().app_data_dir().ok()?;
-    let path = dir.join("images").join(format!("{hash:016x}.png"));
+    let path = dir.join("images").join(format!("{:016x}.png", hash as u64));
     if !path.exists() {
         std::fs::write(&path, bytes).ok()?;
     }
     // 256px thumbnail: the panel lists load this instead of the full image.
     // Decode limits guard against decompression bombs — clipboard bytes can
     // come from any app, and an unconstrained decode can allocate gigabytes
-    let thumb = dir.join("images").join(format!("{hash:016x}_t.png"));
+    let thumb = dir
+        .join("images")
+        .join(format!("{:016x}_t.png", hash as u64));
     if !thumb.exists() {
         let mut reader = image::ImageReader::new(std::io::Cursor::new(&bytes));
         reader.set_format(image::ImageFormat::Png);
@@ -52,8 +56,19 @@ fn persist_image(app: &AppHandle, bytes: &[u8], w: u32, h: u32) -> Option<(Strin
     Some((path.to_string_lossy().into_owned(), w, h))
 }
 
+/// Capture gate (unit-tested): the settle-time self-write re-check is
+/// authoritative. Our own paste can land on the clipboard DURING the 120ms
+/// settle sleep — the entry-time check saw an external copy, but by read
+/// time the content is ours; capturing it re-bumped use_count/created_at on
+/// the row we just pasted and silently dropped the real external copy that
+/// woke the worker.
+fn capture_allowed(self_write_at_entry: bool, self_write_after_settle: bool) -> bool {
+    !(self_write_at_entry || self_write_after_settle)
+}
+
 pub(crate) fn handle_clipboard_change(app: &AppHandle) {
-    if win::is_self_write() {
+    let self_write_at_entry = win::is_self_write();
+    if self_write_at_entry {
         return;
     }
     // capture paused from settings — copies go to the real clipboard
@@ -71,14 +86,20 @@ pub(crate) fn handle_clipboard_change(app: &AppHandle) {
     // put formats on the clipboard in steps, so re-check a few times before
     // trusting a "not flagged" result
     if win::clipboard_marked_sensitive() {
-        eprintln!("[cv] sensitive clipboard content skipped");
+        cvlog!("[cv] sensitive clipboard content skipped");
         return;
     }
     // writers put formats on the clipboard in steps — confirm once after a
     // short settle instead of polling three times (was 360ms on every copy)
     std::thread::sleep(Duration::from_millis(120));
     if win::clipboard_marked_sensitive() {
-        eprintln!("[cv] sensitive clipboard content skipped");
+        cvlog!("[cv] sensitive clipboard content skipped");
+        return;
+    }
+    // re-check AFTER settling: our own paste may have replaced the content
+    // during the sleep window (paste_clip runs on an IPC thread in parallel)
+    if !capture_allowed(self_write_at_entry, win::is_self_write()) {
+        cvlog!("[cv] capture skipped: our own paste landed during the settle window");
         return;
     }
     // snapshot settings once so limit and keywords come from the same state
@@ -156,7 +177,7 @@ pub(crate) fn handle_clipboard_change(app: &AppHandle) {
                 .iter()
                 .any(|k| !k.trim().is_empty() && lower.contains(&k.trim().to_lowercase()))
             {
-                eprintln!("[cv] text matched sensitive keyword — skipped");
+                cvlog!("[cv] text matched sensitive keyword — skipped");
                 None
             } else if t.len() <= 256 * 1024 {
                 Some(Incoming::Text(clean))
@@ -167,9 +188,9 @@ pub(crate) fn handle_clipboard_change(app: &AppHandle) {
                     return;
                 };
                 let _ = std::fs::create_dir_all(&dir);
-                let mut hasher = std::collections::hash_map::DefaultHasher::new();
-                std::hash::Hash::hash(&clean, &mut hasher);
-                let path = dir.join(format!("{:016x}.txt", std::hash::Hasher::finish(&hasher)));
+                // spec FNV-1a stem — same namespace as image files and the
+                // dedup key (DefaultHasher had no cross-toolchain promise)
+                let path = dir.join(format!("{:016x}.txt", db::content_hash(&clean) as u64));
                 if std::fs::write(&path, &clean).is_err() {
                     return;
                 }
@@ -236,12 +257,21 @@ pub(crate) fn handle_clipboard_change(app: &AppHandle) {
         drop(conn);
     }
     if captured {
-        {
-            let conn = lock();
-            if let Ok(victims) = db::enforce_limit(&conn, limit) {
-                // remove image files of evicted rows (thumbs + oversized-text side files too)
-                for (img, txt) in victims {
-                    db::remove_clip_files(img.as_deref(), txt.as_deref());
+        // a settings-parse FALLBACK must not drive pruning with the default
+        // limit: that irreversibly deletes history beyond 1000 entries
+        // (files included) before the user ever explicitly saved
+        let prune_frozen = app
+            .state::<SettingsState>()
+            .1
+            .load(std::sync::atomic::Ordering::SeqCst);
+        if !prune_frozen {
+            {
+                let conn = lock();
+                if let Ok(victims) = db::enforce_limit(&conn, limit) {
+                    // remove image files of evicted rows (thumbs + oversized-text side files too)
+                    for (img, txt) in victims {
+                        db::remove_clip_files(img.as_deref(), txt.as_deref());
+                    }
                 }
             }
         }
@@ -349,6 +379,38 @@ fn html_to_plain(html: &[u8]) -> String {
         .replace("&nbsp;", " ")
         .trim()
         .to_string()
+}
+
+#[cfg(test)]
+mod capture_gate_tests {
+    use super::capture_allowed;
+
+    /// Our own paste can land on the clipboard DURING the worker's 120ms
+    /// settle sleep: the entry-time self-write check saw an external copy,
+    /// but by read time the content is ours. Capturing it bumped use_count /
+    /// created_at on the row we just pasted and silently dropped the real
+    /// external copy that woke the worker. The settle-time re-check is
+    /// authoritative.
+    #[test]
+    fn paste_landing_during_settle_window_is_never_captured() {
+        assert!(
+            !capture_allowed(false, true),
+            "external copy at entry replaced by OUR paste during settle → veto"
+        );
+        assert!(
+            capture_allowed(false, false),
+            "external copy both before and after settle → capture"
+        );
+        assert!(
+            !capture_allowed(true, true),
+            "our own write at both points → veto (entry check also holds)"
+        );
+        assert!(
+            !capture_allowed(true, false),
+            "self-write at entry → the wake-up was our own paste; veto (an external \
+             write on top raises its own WM_CLIPBOARDUPDATE and gets its own wake-up)"
+        );
+    }
 }
 
 #[cfg(test)]

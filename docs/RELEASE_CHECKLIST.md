@@ -9,7 +9,7 @@
 1. `package.json`
 2. `src-tauri/tauri.conf.json`
 3. `src-tauri/Cargo.toml`
-4. `src-tauri/Cargo.lock`（根包名为 `app`：`cargo update -p app` 或重新构建后自动同步）
+4. `Cargo.lock`（仓库根，工作区锁文件；根包名为 `app`：`cargo update -p app` 或重新构建后自动同步）
 5. `CHANGELOG.md`（新增对应版本条目）
 
 ## 2. 门禁 + 深度测试

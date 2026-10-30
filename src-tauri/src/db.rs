@@ -28,6 +28,7 @@ pub fn init(app: &tauri::App) -> Result<(), String> {
         Ok(c) => c,
         Err(e) => {
             eprintln!("[cv] db init failed ({e}) — quarantining corrupt database");
+            cvlog!("[cv] db init failed ({e}) — quarantining corrupt database");
             quarantine_db(&dir)?;
             let c = open_db(&dir).map_err(|e2| format!("db unusable even after recreate: {e2}"))?;
             setup(&c).map_err(|e2| format!("fresh db failed setup: {e2}"))?;
@@ -139,7 +140,17 @@ fn quarantine_db(dir: &std::path::Path) -> Result<(), String> {
             .map_err(|e| e.to_string())?;
     }
     for f in ["clips.db-wal", "clips.db-shm"] {
-        let _ = std::fs::remove_file(dir.join(f));
+        // preserve the sidecars next to the quarantined db instead of
+        // destroying them: frames after the last checkpoint are the NEWEST
+        // committed clips and live only in -wal. The renamed file is never
+        // auto-attached (SQLite only mounts "<db>-wal" exactly), so the
+        // recreated db cannot be polluted by it.
+        let src = dir.join(f);
+        if src.exists() {
+            let _ = std::fs::rename(&src, dir.join(format!("{f}.corrupt-{ts}")));
+        }
+        // the live name must be free regardless (rename failure → remove)
+        let _ = std::fs::remove_file(&src);
     }
     Ok(())
 }
@@ -224,12 +235,20 @@ pub fn list(conn: &Connection, filter: &str, query: &str) -> Result<Vec<Clip>, S
     Ok(out)
 }
 
-/// Stable cross-process 64-bit content hash (FNV-1a) — the dedup lookup key.
-/// DefaultHasher is NOT stable across processes (random per-process keys).
+/// Stable 64-bit content hash (FNV-1a) — the dedup lookup key AND the
+/// content-addressed file-name stem for images and oversized-text side
+/// files. Spec'd FNV-1a: identical across processes and toolchains
+/// (DefaultHasher::new() happens to be stable within a build but made no
+/// cross-version promise — a rustc upgrade would fork the namespace).
 /// Exact-content compare still guards against collisions.
 pub(crate) fn content_hash(s: &str) -> i64 {
+    content_hash_bytes(s.as_bytes())
+}
+
+/// Byte variant of the same FNV-1a (image payloads are bytes, not str).
+pub(crate) fn content_hash_bytes(bytes: &[u8]) -> i64 {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for b in s.as_bytes() {
+    for b in bytes {
         hash ^= u64::from(*b);
         hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
     }
@@ -326,6 +345,13 @@ pub fn enforce_limit(conn: &Connection, max: i64) -> Result<Vec<EvictedFiles>, S
     )
     .map_err(|e| e.to_string())?;
     tx.commit().map_err(|e| e.to_string())?;
+    if !victims.is_empty() {
+        // "cleared means gone" applies to pruning too: secure_delete zeroed
+        // the DELETE's page images, but the victims' plaintext INSERT frames
+        // still sit in -wal until the next checkpoint — truncate now, same
+        // as clear_all
+        let _: Result<(), _> = conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()));
+    }
     let _ = conn.pragma_update(None, "secure_delete", false);
     Ok(victims)
 }
@@ -452,6 +478,9 @@ pub fn delete(conn: &Connection, id: i64) -> Result<(), String> {
     tx.execute("DELETE FROM clips WHERE id=?1", [id])
         .map_err(|e| e.to_string())?;
     tx.commit().map_err(|e| e.to_string())?;
+    // same WAL gap as enforce_limit: the row's plaintext INSERT frames sit in
+    // -wal until the next checkpoint — truncate now ("cleared means gone")
+    let _: Result<(), _> = conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()));
     let _ = conn.pragma_update(None, "secure_delete", false);
     remove_clip_files(image_path.as_deref(), text_path.as_deref());
     Ok(())
@@ -538,23 +567,37 @@ pub fn remove_clip_files(image_path: Option<&str>, text_path: Option<&str>) {
     }
 }
 
-pub fn get_clip(
-    conn: &Connection,
-    id: i64,
-) -> Result<(String, Option<String>, Option<String>), String> {
+/// (kind, content, image_path, text_path) of one row. text_path is what lets
+/// the paste path read the FULL oversized text back from its side file.
+pub type ClipPayload = (String, Option<String>, Option<String>, Option<String>);
+
+pub fn get_clip(conn: &Connection, id: i64) -> Result<ClipPayload, String> {
     conn.query_row(
-        "SELECT kind, content, image_path FROM clips WHERE id=?1",
+        "SELECT kind, content, image_path, text_path FROM clips WHERE id=?1",
         [id],
-        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
     )
     .map_err(|e| e.to_string())
 }
 
-/// Full body of a text/html row — the list query truncates content at
-/// 20000 chars; the zoom window calls this when it needs the rest.
+/// Full body of a text/html row — the list query truncates content and the
+/// zoom window calls this when it needs the rest. For oversized rows the
+/// rest lives in the text_path side file (the content column only holds a
+/// 2000-char preview), so read the file; a missing file is a loud error,
+/// never a silent return of the preview.
 pub fn get_content(conn: &Connection, id: i64) -> Result<String, String> {
-    conn.query_row("SELECT content FROM clips WHERE id=?1", [id], |r| r.get(0))
-        .map_err(|e| e.to_string())
+    let (content, text_path): (String, Option<String>) = conn
+        .query_row(
+            "SELECT content, text_path FROM clips WHERE id=?1",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .map_err(|e| e.to_string())?;
+    match text_path {
+        Some(p) => std::fs::read_to_string(&p)
+            .map_err(|e| format!("oversized-text side file unreadable ({p}): {e}")),
+        None => Ok(content),
+    }
 }
 
 pub fn mark_used(conn: &Connection, id: i64) {
@@ -1755,6 +1798,233 @@ mod gap_tests {
             "plaintext survives on disk in: {found:?} — secure_delete/wal truncate failed"
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod side_file_tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn unique_dir(tag: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!(
+            "cvside_{}_{}_{}",
+            tag,
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    fn mem() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE clips(
+               id INTEGER PRIMARY KEY AUTOINCREMENT,
+               kind TEXT NOT NULL, content TEXT, content_hash INTEGER, image_path TEXT,
+               html BLOB, files TEXT, preview TEXT NOT NULL,
+               pinned INTEGER NOT NULL DEFAULT 0,
+               use_count INTEGER NOT NULL DEFAULT 0,
+               created_at INTEGER NOT NULL, text_path TEXT);",
+        )
+        .unwrap();
+        conn
+    }
+
+    /// get_clip must carry text_path: the paste path's oversized-text branch
+    /// guarded on image_path (never set for text rows), so pasting a >256KB
+    /// copy silently put the 2000-char PREVIEW on the system clipboard.
+    #[test]
+    fn get_clip_returns_the_side_file_path_for_big_text_rows() {
+        let conn = mem();
+        upsert_text_file(&conn, "short preview", "X:\\texts\\big.txt").unwrap();
+        let id = conn
+            .query_row("SELECT id FROM clips", [], |r| r.get::<_, i64>(0))
+            .unwrap();
+        let (kind, _content, _image, text_path) = get_clip(&conn, id).unwrap();
+        assert_eq!(kind, "text");
+        assert_eq!(
+            text_path.as_deref(),
+            Some("X:\\texts\\big.txt"),
+            "the paste path needs text_path to read the full text back"
+        );
+    }
+
+    /// The zoom window's "full body" fetch must read the side file for
+    /// text_path rows — the content column only ever holds a short preview
+    /// there, and the frontend threshold (>4096 chars) never fires on it.
+    #[test]
+    fn get_content_reads_the_side_file_not_the_preview() {
+        let dir = unique_dir("content");
+        let side = dir.join("big.txt");
+        let full = format!("{}-TAIL", "F".repeat(300 * 1024));
+        std::fs::write(&side, &full).unwrap();
+        let conn = mem();
+        let preview: String = full.chars().take(2000).collect();
+        upsert_text_file(&conn, &preview, side.to_str().unwrap()).unwrap();
+        let id = conn
+            .query_row("SELECT id FROM clips", [], |r| r.get::<_, i64>(0))
+            .unwrap();
+        assert_eq!(
+            get_content(&conn, id).unwrap(),
+            full,
+            "clip_content must return the full side-file text"
+        );
+        // gone file → loud error instead of silently serving the preview
+        std::fs::remove_file(&side).unwrap();
+        assert!(get_content(&conn, id).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Inline (≤256KB) rows keep serving their stored content.
+    #[test]
+    fn get_content_inline_rows_return_stored_content() {
+        let conn = mem();
+        upsert_text(&conn, "hello world").unwrap();
+        let id = conn
+            .query_row("SELECT id FROM clips", [], |r| r.get::<_, i64>(0))
+            .unwrap();
+        assert_eq!(get_content(&conn, id).unwrap(), "hello world");
+    }
+
+    /// enforce_limit's secure_delete claim: after pruning, the victims'
+    /// plaintext must not survive inside clips.db-wal (clear_all parity —
+    /// "cleared means gone" applies to pruning too). Read while the
+    /// connection is open: on close SQLite checkpoints anyway.
+    #[test]
+    fn enforce_limit_leaves_no_plaintext_in_wal() {
+        let dir = unique_dir("walprune");
+        let conn = Connection::open(dir.join("clips.db")).unwrap();
+        conn.execute_batch("PRAGMA journal_mode=WAL;").unwrap();
+        setup_schema(&conn).unwrap();
+        let secret = format!("PRUNESECRET-{}", std::process::id());
+        for i in 0..50 {
+            upsert_text(&conn, &format!("{secret}-{i}")).unwrap();
+        }
+        let victims = enforce_limit(&conn, 5).unwrap();
+        assert_eq!(victims.len(), 45);
+        let wal = std::fs::read(dir.join("clips.db-wal")).unwrap_or_default();
+        assert!(
+            !wal.windows(secret.len()).any(|w| w == secret.as_bytes()),
+            "cleared rows' plaintext survives in -wal ({} bytes) — \
+             enforce_limit must wal_checkpoint(TRUNCATE) when it evicts",
+            wal.len()
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Single-row delete has the same WAL exposure as pruning: the deleted
+    /// row's plaintext INSERT frames must not survive in -wal.
+    #[test]
+    fn delete_leaves_no_plaintext_in_wal() {
+        let dir = unique_dir("waldelete");
+        let conn = Connection::open(dir.join("clips.db")).unwrap();
+        conn.execute_batch("PRAGMA journal_mode=WAL;").unwrap();
+        setup_schema(&conn).unwrap();
+        let secret = format!("DELSECRET-{}", std::process::id());
+        let id = upsert_text(&conn, &secret).unwrap().unwrap();
+        let wal_before = std::fs::metadata(dir.join("clips.db-wal"))
+            .map(|m| m.len())
+            .unwrap_or(0);
+        assert!(wal_before > 0, "precondition: the insert landed in -wal");
+        delete(&conn, id).unwrap();
+        let wal = std::fs::read(dir.join("clips.db-wal")).unwrap_or_default();
+        assert!(
+            !wal.windows(secret.len()).any(|w| w == secret.as_bytes()),
+            "deleted row's plaintext survives in -wal ({} bytes) — \
+             delete must wal_checkpoint(TRUNCATE)",
+            wal.len()
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// quarantine_db must PRESERVE the -wal sidecar (renamed next to the
+    /// quarantined main db, under a name SQLite never auto-attaches): the
+    /// frames after the last checkpoint are the NEWEST committed clips and
+    /// the only copy of them. Deleting the sidecar destroyed them forever.
+    #[test]
+    fn quarantine_preserves_the_wal_for_post_hoc_recovery() {
+        let dir = unique_dir("quarantine-wal");
+        let db = dir.join("clips.db");
+        {
+            let conn = Connection::open(&db).unwrap();
+            conn.execute_batch(
+                "PRAGMA journal_mode=WAL; CREATE TABLE clips(id INTEGER PRIMARY KEY, x TEXT);",
+            )
+            .unwrap();
+            let _: i64 = conn
+                .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| r.get(0))
+                .unwrap();
+        }
+        // corrupt the main db beyond quick_check (same recipe as the
+        // existing quarantine test)
+        let good = std::fs::read(&db).unwrap();
+        let mut bytes = good.clone();
+        for k in 0..16 {
+            let pos = (k * 6151 + 4096) % bytes.len();
+            bytes[pos] ^= 0xA5;
+        }
+        std::fs::write(&db, &bytes).unwrap();
+        // a -wal carrying frames newer than the last checkpoint
+        let wal_bytes: Vec<u8> = b"WAL-FRAMES-NEWEST-COMMITTED-CLIPS".to_vec();
+        std::fs::write(dir.join("clips.db-wal"), &wal_bytes).unwrap();
+
+        quarantine_db(&dir).unwrap();
+
+        let preserved: Vec<PathBuf> = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| {
+                p.file_name()
+                    .map(|n| n.to_string_lossy().starts_with("clips.db-wal.corrupt-"))
+                    .unwrap_or(false)
+            })
+            .collect();
+        assert_eq!(
+            preserved.len(),
+            1,
+            "the -wal must be preserved under a non-attachable name: {:?}",
+            preserved
+        );
+        assert_eq!(
+            std::fs::read(&preserved[0]).unwrap(),
+            wal_bytes,
+            "preserved -wal keeps its bytes for post-hoc recovery"
+        );
+        // the stale sidecar must still be gone from its live name — a fresh
+        // db must not pick it up
+        assert!(
+            !dir.join("clips.db-wal").exists(),
+            "the live -wal name must be free for the recreated db"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Content addressing must use SPEC FNV-1a (stable across processes AND
+    /// toolchains — the whole point of a content-addressed file name), and
+    /// the bytes/str variants must agree so image files, oversized-text side
+    /// files and dedup keys share one namespace. DefaultHasher made no
+    /// cross-version promise; a rustc upgrade would fork the namespace.
+    #[test]
+    fn content_hash_is_spec_fnv1a_shared_by_bytes_and_text() {
+        // spec vectors: offset basis (empty input) and FNV-1a("a")
+        assert_eq!(content_hash(""), 0xcbf2_9ce4_8422_2325u64 as i64);
+        assert_eq!(content_hash("a"), 0xaf63_dc4c_8601_ec8cu64 as i64);
+        assert_eq!(
+            content_hash_bytes(b"abc"),
+            content_hash("abc"),
+            "bytes and str variants must produce identical hashes"
+        );
+        assert_eq!(
+            content_hash_bytes(b""),
+            content_hash(""),
+            "empty-input agreement pins the same algorithm"
+        );
     }
 }
 

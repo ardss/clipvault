@@ -34,8 +34,5 @@ windows = { version = "0.58", features = [
   "Win32_Security",
 ] }
 
-[profile.release]
-opt-level = "s"
-lto = "fat"
-codegen-units = 1
-strip = true
+# NOTE: [profile.release] lives at the WORKSPACE root (../Cargo.toml) — cargo
+# ignores profiles declared in a non-root member.
