@@ -9,7 +9,7 @@
 - 安装路径：`C:\Users\13397\AppData\Local\ClipVault\app.exe`（currentUser 默认）
 - 数据：`%APPDATA%\com.clipvault.app\clips.db` 6.9MB **真实历史，已原样保留**
 - 备份：`%APPDATA%\clipvault-backup-20261012\`（db+wal+shm+settings+log，可回滚）
-- 用户配置保留：热键 **Ctrl+Alt+V**、autostart=true、面板高 582
+- 用户热键：**Alt+V**（2026-10-30 应用户要求由沿袭自旧版的 Ctrl+Alt+V 统一还原为默认 Alt+V，settings.json.bak-20261030 留有原值）、autostart=true、面板高 582
 - 验证：安装器 POSTINSTALL 自动拉起（SSH 远程装也生效）；cv.log `hotkey registered: Ctrl+Alt+V` + listener + 心跳
 - 遗留（保留未动）：`F:\ClipVault` 旧 0.1.0 及其卸载入口（GUID `56b0c7f1-…`）作为回滚用；桌面 `ClipVault.lnk` 已指向新 exe
 
