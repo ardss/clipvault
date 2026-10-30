@@ -19,19 +19,19 @@
 - M2 附带批准：RELEASE_CHECKLIST §7 失真纠正 + DEPLOYMENT.md 旧版本/热键信息同步为有证据支持的事实。
 
 ### 执行（全部在批准范围内）
-- ✅ **F1 修正版**：`.github/workflows/{ci,release}.yml` rust-cache `workspaces: src-tauri` → `. -> src-tauri/target`（附注释说明映射理由）。验收按 GPT 条件走 CI 日志：Cache Paths 须含 src-tauri/target、Lockfiles considered 须含根 Cargo.lock+Cargo.toml、main CI 绿；注：新 tag Release run 首跑 cache miss 属分支/tag 隔离规则，不判修复失败。
+- ✅ **F1 修正版**：`.github/workflows/{ci,release}.yml` rust-cache `workspaces: src-tauri` → `. -> src-tauri/target`（附注释说明映射理由）。**验收已完成（GPT 条件逐项对照）**：run 113（5879241）raw log「Cache Configuration」实测 Workspaces=`D:\a\clipvault\clipvault`（根）、Cache Paths 含 `src-tauri\target`、Lockfiles considered 含根 `Cargo.lock`（另含 `.cargo\config.toml`、`src-tauri\Cargo.toml`）；restore-key 命中恢复 644 MB 成功（full match:false 属键后缀随新配置变化的预期形态）；runs 112/113/114/115 全绿。注：新 tag Release run 首跑 cache miss 属分支/tag 隔离规则，不判修复失败。
 - ✅ **M1**：CHANGELOG `[0.1.6]` 补日期 2026-10-30；`[0.1.5]` 标 Unpublished（draft 保留，被 0.1.6 取代）；v0.1.4 表述改为「误发布+警告加固+由 0.1.5+/0.1.6 替代」（GPT M1 附带建议）。
 - ✅ **M2**：本日志当日记录；10-30 发布轮补索引（见下节）。
 - ✅ **M2 附带**：RELEASE_CHECKLIST §7 三处纠正（背景行去掉「已回滚」；条目 2 注明反向 PATCH 对已发布 Release 被静默忽略；另注改为「已发布版本无任何转 Draft 路径，处置=警告加固或授权删除重建」）；DEPLOYMENT.md A/B 机同步（A：10-30 升 0.1.6、902 条历史保留、热键行按 Alt+V 现值并留演变注记；B：v0.1.6 运行中、877 条历史、备份 `clipvault-rounds/backup-20261030-b/`）。
 - QA 口径：本地 `cargo fmt --check` 绿；本地 clippy/test 被沙箱挡（`.cargo-build-lock` 拒绝访问，见环境异常②）。本批变更仅 yml/md 不触 Rust 代码，全量 fmt/clippy/test 门禁由推送后 main CI 执行——与 GPT 对 F1 的验收方式（CI 日志）一致。
-- 提交通道：本地 commit 因沙箱拒写 .git 不可行 → 改走 GitHub Web UI（浏览器后台标签，登录态有效）逐文件提交 main；随后本地仅用文件后端回写 remote-tracking ref 对齐。
+- 提交通道：本地 commit 因沙箱拒写 .git 不可行 → 改走 GitHub Web UI（登录态有效）：2 笔 web-edit 提交（03d673b ci.yml、5879241 release.yml）+ 2 笔 upload 提交（bb20f19 docs 对、b8fc51d CHANGELOG+本日志），随后**六文件 raw.githubusercontent 拉取 SHA256 与本地 LF 归一内容逐字节核验一致**；本地仅用文件后端回写 remote-tracking ref 对齐。
 
 ### 发版
 - **否**（GPT 明示不发版；本轮全 chore/docs，无用户可感知变更）。
 
 ### 待办
 - 用户：①B 机 Alt+V 真实粘贴冒烟（10-30 遗留 #1；失败按 `backup-20261030-b/` + 旧 exe 回滚）；②v0.1.5 Draft（id 423764142）保留或删除决策；③whale_push 服务恢复后日报 QQ 通道可回归（今日已探测 DOWN）。
-- 机器侧下轮：①F1 验收复核（main CI 日志 Cache Paths / Lockfiles considered / 缓存恢复命中）；②F2 DPI 回退按 GPT 要求单独提案；③`.git/__backend_writetest.tmp`（本轮沙箱探测产物，10 字节惰性文件，shell 删除被拒）请有完全权限的会话顺手清除；④历史遗留数据清理（STATUS.md §已知偏差 4）仍挂最终归档阶段。
+- 机器侧下轮：①F1 已完成首轮验收（见执行节），仅剩「下次新 tag Release run 的 full match 复核」挂发版轮顺带看；②F2 DPI 回退按 GPT 要求单独提案；③`.git/__backend_writetest.tmp`（本轮沙箱探测产物，10 字节惰性文件，shell 删除被拒）请有完全权限的会话顺手清除；④历史遗留数据清理（STATUS.md §已知偏差 4）仍挂最终归档阶段。
 
 ## 2026-10-30 发布轮（补索引；当日未回写本日志，详情见 clipvault-rounds/2026-10-30-release-and-deploy.md 四象限总结）
 
