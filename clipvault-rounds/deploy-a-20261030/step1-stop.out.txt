@@ -1,0 +1,3 @@
+STOP PID=26548 PATH=C:\Users\13397\AppData\Local\ClipVault\app.exe
+REMAINING=0
+STOP_OK

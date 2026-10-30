@@ -1,0 +1,7 @@
+PY_INTERP=C:\Python314\python.exe
+DB_RO_URI=file:C:/Users/13397/AppData/Roaming/com.clipvault.app/clips.db?mode=ro
+TABLES=clips,sqlite_sequence
+ROWS clips = 902
+ROWS sqlite_sequence = 1
+ROWCOUNT_DONE_READONLY
+PY_EXIT=0

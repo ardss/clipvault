@@ -1,0 +1,28 @@
+=== BEFORE: instances with SessionId ===
+INST PID=48016 SESSION=0 CREATED=2026/10/30 19:03:33
+INST PID=47480 SESSION=1 CREATED=2026/10/30 19:12:55
+=== STOP ALL by path ===
+STOP PID=48016
+STOP PID=47480
+REMAINING_AFTER_STOP=0
+=== RELAUNCH single instance via WMI (escapes ssh session) ===
+WMI_CREATE ReturnValue=0 PID=45064
+=== AFTER: instances with SessionId ===
+INST PID=45064 SESSION=0 CREATED=2026/10/30 19:14:29
+=== cv.log tail (15) ===
+1793358476388 [cv] single-instance event window hidden
+1793358476392 [cv] hotkey registered: Ctrl+Alt+V
+1793358476434 [cv] listener thread started
+1793358476525 [cv] list: filter="all" query_chars=0 total=-1
+1793358477084 [cv] files: none, trying text/html/dib
+1793358477219 [cv] list: filter="all" query_chars=0 total=-1
+1793358776375 [cv] single-instance event window hidden
+1793358776380 [cv] hotkey registered: Ctrl+Alt+V
+1793358776451 [cv] listener thread started
+1793358776557 [cv] list: filter="all" query_chars=0 total=-1
+1793358777102 [cv] files: none, trying text/html/dib
+1793358777250 [cv] list: filter="all" query_chars=0 total=-1
+1793358870150 [cv] single-instance event window hidden
+1793358870176 [cv] listener thread started
+1793358870821 [cv] files: none, trying text/html/dib
+NORMALIZE_DONE

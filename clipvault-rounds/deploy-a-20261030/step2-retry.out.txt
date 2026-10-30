@@ -1,0 +1,3 @@
+CURL_EXIT=0 FILE=ClipVault_0.1.6-portable.exe
+curl: (28) Connection timed out after 20009 milliseconds
+CURL_EXIT=0 FILE=SHA256SUMS.txt

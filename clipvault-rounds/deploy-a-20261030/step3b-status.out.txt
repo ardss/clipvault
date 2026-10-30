@@ -1,0 +1,7 @@
+=== INSTALL STATUS CHECK ===
+EXE_VERSION=0.1.6 MTIME=2026-10-30T16:47:10.0000000+08:00
+=== app.exe process by path ===
+RUNNING PID=48016 CREATED=2026/10/30 19:03:33
+=== installer processes still alive? ===
+PROC NAME=app PID=48016 PATH=C:\Users\13397\AppData\Local\ClipVault\app.exe
+STATUS_DONE

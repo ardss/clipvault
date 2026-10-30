@@ -1,0 +1,4 @@
+=== DOWNLOAD (curl.exe --ssl-no-revoke, public repo no token) ===
+CURL_EXIT=0 FILE=ClipVault_0.1.6_x64-setup.exe
+curl: (28) Failed to connect to github.com:443 after 21097 ms: Could not connect to server
+CURL_EXIT=28 FILE=ClipVault_0.1.6-portable.exe

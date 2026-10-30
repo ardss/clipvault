@@ -80,3 +80,12 @@
 - 待自动补跑：notepad（单实例换 pid → 已改 title 子串发现）、chrome（更新弹窗 → 已换 Edge 靶 + CDP 就绪轮询）
 - 修复版 watcher 已布防（14:07，CDP 就绪轮询 + 15min 空闲门控 + finally 自愈）；用户持续活跃（36min 无 15min 空闲窗），自动触发未发生
 - 交接约定：watcher 触发后 driver.log 会出现 4 行 RESULT；任一会话消息即可让 Owner 解析结果并执行「组证据包→GPT 终审→GO 后发布」
+
+## 2026-10-30 发布与双机部署小节（收口）
+
+- **GPT 门按 Owner 指示由执行者终审替代**：2026-10-30 用户原话『不需要他终审你自己审就好了』；GPT 渠道另因 Turnstile 阻断（浏览器实测卡验证页）。
+- **v0.1.6 已正式发布**：draft id=428811926 于 2026-10-30T10:32:54Z publish（GO 后执行，红线3）；发布前 assets SHA256==SHA256SUMS.txt 逐项一致（EXIT=0，CRLF 去 \r 归一），发布后复核 draft:false、assets 3/3；v0.1.5 draft（id=423764142）仍 draft:true 未触碰。终审证据链（CI run #54 success + cargo test 86 绿 + 四场景 4/4 + 资产 SHA256 双验 + 20 处架构问题修复入版 + 两起测试事故披露处置）全文见 `gpt-review-package-20261030.md` §11。
+- **四场景终态**：textbox / richtextbox / chrome 自动化 PASS=true；notepad 自动化 PASS=false（环境失败：UIA 焦点 VERIFIED + 注入器 focus matched 后 Ctrl+V 已发但编辑器仍 BEFORE，4 轮 0 落地，产品 fail-closed 契约链正确）→ **用户人工验收通过（2026-10-30）**，终审口径 4/4。门禁表三项（GPT GO / 发布操作）已在 `gpt-review-package-20261030.md` §8 更新为 ✅。
+- **双机部署**：B 机 0.1.5→0.1.6（冷备 149 文件 + clips.db SHA256 一致 → gh release download 核验 → /S 静默安装 → PID 392 ProductVersion=0.1.6、HKCU Run、cv.log Alt+V、clips 877 前==后 readonly）；A 机 0.1.2→0.1.6（ssh 远程六步：冷备 158/158 + db/wal/shm 三对 SHA256 MATCH → SHA256_ALL_MATCH 三方一致 → 静默安装 → 单实例 PID 23956 → HKCU Run/DisplayVersion=0.1.6/Ctrl+Alt+V LINE 1083/clips=902 前==后 readonly；回滚备而未用）。
+- **证据**：`deploy-a-20261030/`（31 文件脚本+输出）、`deploy-b-20261030/`（脚本+下载件）、`backup-20261030-b/`（B 机真实数据备份，不入库）、四象限总结 `2026-10-30-release-and-deploy.md`。
+- **遗留人工动作**：B 机 Alt+V 冒烟确认（用户，失败则回滚）；v0.1.5 draft 处置待 Owner 决策。defer 清单（面板定位纠偏 commands.rs:256-266、rust-cache workspaces 配置、notepad 自动化复现）见四象限总结象限4。

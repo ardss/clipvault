@@ -1,0 +1,31 @@
+=== HOST ===
+HOSTNAME=DESKTOP-CD2C03F USER=13397 NOW=2026-10-30T18:59:01.0396793+08:00
+=== OLD EXE ===
+OLD_EXE=C:\Users\13397\AppData\Local\ClipVault\app.exe
+OLD_VERSION=0.1.2
+OLD_EXE_MTIME=2026-10-01T08:38:14.0000000+08:00
+=== RUNNING PROCS (ClipVault paths) ===
+PROC PID=26548 PATH=C:\Users\13397\AppData\Local\ClipVault\app.exe CREATED=2026/10/30 10:17:03
+=== RUN KEY (pre-install) ===
+RUN_CLIPVAULT="C:\Users\13397\AppData\Local\ClipVault\app.exe" /autostart
+=== DB META (pre-install) ===
+DB_SIZE=9228288 DB_MTIME=2026-10-30T18:42:17.5678243+08:00
+WAL_SIZE=0 WAL_MTIME=2026-10-30T18:42:17.6085148+08:00
+=== UNINSTALL REG ===
+
+
+DisplayName     : ClipVault
+DisplayVersion  : 0.1.2
+InstallLocation : "C:\Users\13397\AppData\Local\ClipVault"
+UninstallString : "C:\Users\13397\AppData\Local\ClipVault\uninstall.exe"
+
+
+
+
+=== TOOLS ===
+TOOL python = C:\Python314\python.exe
+TOOL py = C:\WINDOWS\py.exe
+TOOL sqlite3 = D:\miniconda3\Library\bin\sqlite3.exe
+TOOL curl.exe = C:\WINDOWS\system32\curl.exe
+TOOL robocopy = C:\WINDOWS\system32\Robocopy.exe
+META_DONE

@@ -1,0 +1,18 @@
+=== Stop only the session-0 leftover instance (by PID+path verify) ===
+STOP_SESSION0 PID=45064
+KEEP_SESSION1 PID=23956 SESSION=1
+=== wait 75s to observe respawn behavior ===
+=== FINAL instances ===
+INST PID=23956 SESSION=1 CREATED=2026/10/30 19:15:24
+=== cv.log tail (10) ===
+1793358777250 [cv] list: filter="all" query_chars=0 total=-1
+1793358870150 [cv] single-instance event window hidden
+1793358870176 [cv] listener thread started
+1793358870821 [cv] files: none, trying text/html/dib
+1793358925976 [cv] single-instance event window hidden
+1793358925981 [cv] hotkey registered: Ctrl+Alt+V
+1793358926053 [cv] listener thread started
+1793358926170 [cv] list: filter="all" query_chars=0 total=-1
+1793358926702 [cv] files: none, trying text/html/dib
+1793358926866 [cv] list: filter="all" query_chars=0 total=-1
+NORMALIZE2_DONE
