@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.6] - pending release
+## [0.1.6] - 2026-10-30
 
 ### Fixed
 
@@ -21,9 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The four tests that write the real system clipboard are serialized behind a test-only lock — a parallel-test race could read another test's clipboard write and fail intermittently
 - Clippy-clean under `-D warnings` (the release gate): a `ClipPayload` type alias replaces `get_clip`'s complex tuple return; the watchdog dereferences its `Copy` `Option<Instant>` instead of cloning; the deliberate non-`async` `impl Future + Send` return on the paste command (the very thing its Send assertion tests) carries an explicit `manual_async_fn` allow
 
-## [0.1.5] - pending release
+## [0.1.5] - Unpublished (draft retained; superseded by 0.1.6)
 
-> The v0.1.4 candidate was superseded before publication (a P1 PNG-capture defect was found in its release build); all of its changes ship in 0.1.5.
+> v0.1.4 was accidentally published on 2026-10-27 (its P1 PNG-capture defect had not been caught before the release went out); its release notes now carry a do-not-use warning, and it is superseded by 0.1.5+ — shipped to users in 0.1.6.
 
 ### Fixed
 
