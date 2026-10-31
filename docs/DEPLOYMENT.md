@@ -5,18 +5,18 @@
 ## A = DESKTOP-CD2C03F（主力机，192.168.31.64）【真实安装并运行】
 
 - SSH：key 认证可用（用户 13397，Windows OpenSSH，默认 shell 为 cmd）
-- 2026-10-12 升级迁移：旧 0.1.0（Temp 内 opencode 构建进程 + `F:\ClipVault` 旧安装）→ 官方 CI v0.1.2
+- 2026-10-12 升级迁移：旧 0.1.0（Temp 内 opencode 构建进程 + `F:\ClipVault` 旧安装）→ 官方 CI v0.1.2；**2026-10-30 升级 v0.1.2 → 官方 CI v0.1.6**（902 条真实历史前==后保留，备份 `%APPDATA%\clipvault-backup-20261030-a`，验收证据 clipvault-rounds/deploy-a-20261030/）
 - 安装路径：`C:\Users\13397\AppData\Local\ClipVault\app.exe`（currentUser 默认）
 - 数据：`%APPDATA%\com.clipvault.app\clips.db` 6.9MB **真实历史，已原样保留**
 - 备份：`%APPDATA%\clipvault-backup-20261012\`（db+wal+shm+settings+log，可回滚）
 - 用户热键：**Alt+V**（2026-10-30 应用户要求由沿袭自旧版的 Ctrl+Alt+V 统一还原为默认 Alt+V，settings.json.bak-20261030 留有原值）、autostart=true、面板高 582
-- 验证：安装器 POSTINSTALL 自动拉起（SSH 远程装也生效）；cv.log `hotkey registered: Ctrl+Alt+V` + listener + 心跳
+- 验证：安装器 POSTINSTALL 自动拉起（SSH 远程装也生效，v0.1.6 起自动拉起修复会将其带入交互 session）；cv.log `hotkey registered: Alt+V`（装机时曾记录 Ctrl+Alt+V，当晚热键还原后为新值）+ listener + 心跳
 - 遗留（保留未动）：`F:\ClipVault` 旧 0.1.0 及其卸载入口（GUID `56b0c7f1-…`）作为回滚用；桌面 `ClipVault.lnk` 已指向新 exe
 
 ## B = Du（共享 K 盘机，本会话所在机器）【操作验收通过】
 
-- 本机开发/构建机，v0.1.2 运行中（进程自 10-07 起）
-- 安装路径：`F:\Apps\ClipVault\app.exe`，热键 **Alt+V**，autostart=true（HKCU Run 确认）
+- 本机开发/构建机，**v0.1.6 运行中**（2026-10-30 由 v0.1.5 升级：877 条真实历史前==后保留，整目录备份 `clipvault-rounds/backup-20261030-b/`；v0.1.2 时期进程曾自 10-07 连续运行）
+- 安装路径：`F:\Apps\ClipVault\app.exe`，热键 **Alt+V**（cv.log `hotkey registered: Alt+V`，2026-10-30 18:41 新实例），autostart=true（HKCU Run 确认）
 - 安装器含 POSTINSTALL 自动拉起钩子（2026-10-01 实测 4 秒内自启）
 - K: 为 B 的本地磁盘，经 SMB 共享给 A（B 侧共享 K、K$、C$、F$、ADMIN$）
 

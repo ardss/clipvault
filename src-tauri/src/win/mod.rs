@@ -221,73 +221,104 @@ unsafe extern "system" fn mouse_proc(n_code: i32, w_param: WPARAM, l_param: LPAR
 }
 
 static MOUSE_HOOK_DESIRED: AtomicBool = AtomicBool::new(false);
-static MOUSE_HOOK_CMD: StdMutex<Option<std::sync::mpsc::Sender<bool>>> = StdMutex::new(None);
 static MOUSE_HOOK_THREAD: AtomicBool = AtomicBool::new(false);
+/// Thread id of the dedicated hook thread (0 until it runs). Install/uninstall
+/// commands are delivered as thread messages so the pump can block in
+/// GetMessageW. This is not a style choice: the low-level hook callback runs
+/// on the installing thread, and the system holds every mouse event until
+/// that thread pumps it — a PeekMessage+sleep loop here once slept 40 ms per
+/// batch and made the cursor visibly lag system-wide for as long as the
+/// panel (and therefore the hook) was open.
+static MOUSE_HOOK_TID: AtomicUsize = AtomicUsize::new(0);
+
+const WM_HOOK_CMD: u32 = WM_APP + 1;
+
+fn hook_thread_body() {
+    MOUSE_HOOK_TID.store(unsafe { GetCurrentThreadId() } as usize, Ordering::SeqCst);
+    let mut hook: Option<HHOOK> = None;
+    loop {
+        let mut msg = MSG::default();
+        // blocking wait: zero CPU while idle, dispatches hook callbacks the
+        // instant they arrive (never sleep between pumps — see MOUSE_HOOK_TID)
+        let r = unsafe { GetMessageW(&mut msg, None, 0, 0) };
+        if !r.as_bool() {
+            continue;
+        }
+        if msg.message == WM_HOOK_CMD {
+            let on = msg.wParam.0 != 0;
+            if on && hook.is_none() {
+                match unsafe { SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_proc), None, 0) } {
+                    Ok(h) => {
+                        hook = Some(h);
+                        cvlog!("[cv] mouse hook installed");
+                    }
+                    Err(e) => {
+                        cvlog!("[cv] mouse hook install FAILED: {e}");
+                    }
+                }
+            } else if !on {
+                if let Some(h) = hook.take() {
+                    unsafe {
+                        let _ = UnhookWindowsHookEx(h);
+                    }
+                    cvlog!("[cv] mouse hook removed");
+                }
+            }
+            continue;
+        }
+        unsafe {
+            let _ = TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+    }
+}
 
 /// The low-level mouse hook is only needed while the panel is visible —
 /// installing on show and uninstalling on hide (a) removes a permanent
 /// global hook from the system and (b) self-heals: a hook silently removed
 /// by the system (low-level timeout) is reinstalled on the next show. The
 /// previous install-once-forever never recovered (audit P3).
-///
-/// The hook's callback is invoked on the thread that installed it, and that
-/// thread MUST pump messages — so install/uninstall happen on a dedicated
-/// hook thread driven by a command channel, with a fast PeekMessage pump.
 pub fn set_mouse_hook(on: bool) {
     if MOUSE_HOOK_DESIRED.swap(on, Ordering::SeqCst) == on {
         return;
     }
-    let tx = {
-        let mut g = MOUSE_HOOK_CMD.lock().unwrap_or_else(|p| p.into_inner());
-        if !MOUSE_HOOK_THREAD.swap(true, Ordering::SeqCst) {
-            let (tx, rx) = std::sync::mpsc::channel::<bool>();
-            *g = Some(tx);
-            std::thread::spawn(move || {
-                let mut hook: Option<HHOOK> = None;
-                loop {
-                    // drain pending commands (non-blocking)
-                    if let Ok(on) = rx.try_recv() {
-                        if on && hook.is_none() {
-                            match unsafe {
-                                SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_proc), None, 0)
-                            } {
-                                Ok(h) => {
-                                    hook = Some(h);
-                                    cvlog!("[cv] mouse hook installed");
-                                }
-                                Err(e) => {
-                                    cvlog!("[cv] mouse hook install FAILED: {e}");
-                                }
-                            }
-                        } else if !on {
-                            if let Some(h) = hook.take() {
-                                unsafe {
-                                    let _ = UnhookWindowsHookEx(h);
-                                }
-                                cvlog!("[cv] mouse hook removed");
-                            }
-                        }
-                    }
-                    // pump: the low-level hook requires an active message pump
-                    // on the installing thread, or the system drops the hook
-                    unsafe {
-                        let mut msg = MSG::default();
-                        while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
-                            let _ = TranslateMessage(&msg);
-                            DispatchMessageW(&msg);
-                        }
-                    }
-                    std::thread::sleep(std::time::Duration::from_millis(40));
-                }
-            });
+    if !MOUSE_HOOK_THREAD.swap(true, Ordering::SeqCst) {
+        std::thread::spawn(hook_thread_body);
+    }
+    // The thread starts once per process; this retry window only covers the
+    // very first toggle racing the thread's own startup.
+    for _ in 0..200 {
+        let tid = MOUSE_HOOK_TID.load(Ordering::SeqCst);
+        if tid != 0 {
+            unsafe {
+                let _ = PostThreadMessageW(tid as u32, WM_HOOK_CMD, WPARAM(on as usize), LPARAM(0));
+            }
+            return;
         }
-        g.clone()
-    };
-    if let Some(tx) = tx {
-        let _ = tx.send(on);
-    } else {
-        // command channel missing — undo the desired flag so a later call retries
-        MOUSE_HOOK_DESIRED.store(!on, Ordering::SeqCst);
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    cvlog!("[cv] mouse hook thread did not start — outside-click close disabled this session");
+    MOUSE_HOOK_DESIRED.store(!on, Ordering::SeqCst);
+}
+
+#[cfg(test)]
+mod mouse_hook_tests {
+    /// Smoke test for the whole toggle path: thread spawn, thread-message
+    /// delivery, hook install and uninstall. The latency property itself
+    /// (blocking GetMessageW pump, no sleep between pumps) is a code-review
+    /// invariant — see MOUSE_HOOK_TID's doc comment for the 40 ms incident.
+    #[test]
+    fn mouse_hook_toggle_round_trip_does_not_hang() {
+        super::set_mouse_hook(true);
+        super::set_mouse_hook(false);
+        super::set_mouse_hook(true);
+        super::set_mouse_hook(false);
+        assert!(!super::MOUSE_HOOK_DESIRED.load(std::sync::atomic::Ordering::SeqCst));
+        assert_ne!(
+            super::MOUSE_HOOK_TID.load(std::sync::atomic::Ordering::SeqCst),
+            0,
+            "hook thread must have published its thread id"
+        );
     }
 }
 

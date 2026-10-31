@@ -24,7 +24,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri
+          # workspace is the root virtual workspace (Cargo.lock lives at the
+          # repo root), but the real build dir stays src-tauri/target via
+          # .cargo/config.toml — map it explicitly so the cache key sees the
+          # root lockfile while caching the actual target dir
+          workspaces: . -> src-tauri/target
       - run: cargo fmt --check
         working-directory: src-tauri
       - run: cargo clippy --all-targets -- -D warnings
