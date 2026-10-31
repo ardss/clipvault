@@ -20,11 +20,12 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-/// Initial calibration threshold (plan: 校准期). The 2026-10-31 incident
-/// produced ~40ms gaps; a healthy blocking pump keeps gap P99 in single-digit
-/// ms on a real desktop. Raise only with calibration evidence in
-/// MAINTENANCE_LOG.
-const P99_THRESHOLD_MS: u128 = 5;
+/// Calibrated 2026-10-31 on machine B (in-isolation run, debug AND release
+/// builds): p50=0ms, p99=8-9ms — the machine's real tail. 20ms is 2x the
+/// observed tail and still only half the ~40ms incident signature
+/// (cf2e7db), so the probe keeps a wide margin against both false reds and
+/// the regression it exists to catch.
+const P99_THRESHOLD_MS: u128 = 20;
 const SAMPLES: usize = 200;
 const TIMEOUT: Duration = Duration::from_secs(30);
 

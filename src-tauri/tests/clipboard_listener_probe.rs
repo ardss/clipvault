@@ -128,7 +128,18 @@ unsafe fn write_clipboard_text(text: &str) {
     let wide: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
     let bytes = wide.len() * 2;
     unsafe {
-        OpenClipboard(None).expect("OpenClipboard");
+        // Other desktop processes (IMEs, remote-assist tools) hold the
+        // clipboard open transiently; OpenClipboard fails with
+        // ACCESS_DENIED while they do. Retry well past their hold times.
+        let mut opened = false;
+        for _ in 0..50 {
+            if OpenClipboard(None).is_ok() {
+                opened = true;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(opened, "OpenClipboard: held by another process for >1s");
         EmptyClipboard().expect("EmptyClipboard");
         let h = GlobalAlloc(GMEM_MOVEABLE, bytes).expect("GlobalAlloc");
         let h = HGLOBAL(h.0);
@@ -148,7 +159,15 @@ unsafe fn read_clipboard_text() -> String {
     use windows::Win32::System::Memory::*;
 
     unsafe {
-        OpenClipboard(None).expect("OpenClipboard for read-back");
+        let mut opened = false;
+        for _ in 0..50 {
+            if OpenClipboard(None).is_ok() {
+                opened = true;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(opened, "OpenClipboard for read-back: held by another process for >1s");
         let h = GetClipboardData(CF_UNICODETEXT).expect("GetClipboardData");
         let h = HGLOBAL(h.0);
         let ptr = GlobalLock(h);
