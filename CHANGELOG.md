@@ -5,6 +5,13 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.7] - 2026-10-31
+
+### Fixed
+
+- **面板打开时整机鼠标卡顿（回归修复）**：低级鼠标钩子线程的 PeekMessage+sleep(40ms) 泵让系统所有鼠标事件在钩子线程里排队——面板呼出期间（钩子激活期间）每次输入最多延迟 40ms，A 机上表现为"呼出即卡"。改为阻塞式 GetMessageW 泵（空闲零 CPU、事件瞬时派发），安装/卸载命令改经线程消息投递（WM_APP），去除 mpsc 轮询通道。回归自 e3f97da 的 hook 加固。
+- 新增 mouse_hook_toggle_round_trip 测试锁住切换路径；延迟不变量（泵循环内禁止 sleep）以代码注释形式固化。
+
 ## [Unreleased]
 
 ## [0.1.6] - 2026-10-30

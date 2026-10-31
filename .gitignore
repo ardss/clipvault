@@ -12,3 +12,11 @@ tmp-ux/
 # sandbox-acceptance-kit VM input: binary copy of the release asset (kept on
 # GitHub releases; SHA256SUMS.txt next to it preserves the evidence chain)
 clipvault-rounds/sandbox-acceptance-kit/vm-share/in/*.exe
+
+# user data backups & binaries never enter the public repo
+clipvault-rounds/backup-*/
+clipvault-rounds/**/*.db
+clipvault-rounds/**/*.db-wal
+clipvault-rounds/**/*.db-shm
+clipvault-rounds/deploy-*/**/*.exe
+clipvault-rounds/**/*.txt.bak*
