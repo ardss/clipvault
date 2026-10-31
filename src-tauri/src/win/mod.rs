@@ -303,6 +303,31 @@ pub fn set_mouse_hook(on: bool) {
 
 #[cfg(test)]
 mod mouse_hook_tests {
+    /// Machine-enforced invariant of the 2026-10-31 incident: the low-level
+    /// hook callback is dispatched from the hook thread's message pump, and
+    /// the system withholds every mouse event until it returns. Any sleep
+    /// inside the pump becomes direct system-wide input latency, invisible
+    /// to CPU sampling and to every functional test. This guard fails the
+    /// build if one is ever reintroduced into the pump or its body.
+    #[test]
+    fn hook_pump_must_not_sleep() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/win/mod.rs"));
+        let start = src
+            .find("fn hook_thread_body")
+            .expect("hook_thread_body must exist");
+        let end = src[start..]
+            .find("pub fn set_mouse_hook")
+            .expect("set_mouse_hook must follow hook_thread_body")
+            + start;
+        let body = &src[start..end];
+        assert!(
+            !body.contains("sleep("),
+            "the hook message pump must not sleep between pumps: system-wide \
+             mouse input is held while the hook callback is pending, so any \
+             sleep here becomes direct cursor latency (2026-10-31 incident, \
+             regression from e3f97da)"
+        );
+    }
     /// Smoke test for the whole toggle path: thread spawn, thread-message
     /// delivery, hook install and uninstall. The latency property itself
     /// (blocking GetMessageW pump, no sleep between pumps) is a code-review
