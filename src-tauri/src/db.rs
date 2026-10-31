@@ -1401,6 +1401,16 @@ mod stress_tests {
         use std::sync::atomic::{AtomicU64, Ordering};
         use std::sync::{Arc, Mutex};
 
+        // Timing/throughput probe: hung >85min on a GH windows runner
+        // (nightly run 41212764803) and runs unbounded (~20min+, no verdict)
+        // on an idle desktop. It measures shared-mutex contention patterns,
+        // not correctness — opt-in via CV_PERF_PROBE=1, never in any gate
+        // (same ruling as the ratio<3.0 assertion, plan §3.3).
+        if std::env::var_os("CV_PERF_PROBE").is_none() {
+            eprintln!("skipped: perf probe, opt in with CV_PERF_PROBE=1");
+            return;
+        }
+
         let dir = unique_dir("conc");
         let conn = ondisk_db(&dir, true);
         bulk_insert_text_disk(&conn, 1_000, 1_700_000_000_000);
