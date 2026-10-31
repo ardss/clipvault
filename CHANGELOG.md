@@ -5,14 +5,23 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.8] - 2026-10-31
+
+### Fixed
+
+- **db 去重回归**：deep 规模基准暴露 upsert 未去重（200 条重复未合并），修复 latest-wins 合并语义，基准计数断言回归门禁内。
+
+### Added
+
+- **测试体系架构落地**（详见 docs/TESTING_ARCHITECTURE_PLAN.md）：源码守卫守卫（钩子回调禁文件 I/O、同步命令禁建窗、profile.release 仅根）；ipc_contract 集成测试（16 命令契约）；真机隔离门探针（钩子延迟 P99、剪贴板监听）已在 B 机实跑校准；每晚 nightly 门禁（深度套件 + webview E2E）；前端 vitest（armed 清空历史状态机穷举断言）+ 4 个纯模块拆分；发布机器门禁（版本五处一致性、构建 profile、dist 新鲜度、release-gate、双机配置漂移检测）。
+- 每晚自动体检（GitHub Actions nightly）：结果异常次日可见。
+
 ## [0.1.7] - 2026-10-31
 
 ### Fixed
 
 - **面板打开时整机鼠标卡顿（回归修复）**：低级鼠标钩子线程的 PeekMessage+sleep(40ms) 泵让系统所有鼠标事件在钩子线程里排队——面板呼出期间（钩子激活期间）每次输入最多延迟 40ms，A 机上表现为"呼出即卡"。改为阻塞式 GetMessageW 泵（空闲零 CPU、事件瞬时派发），安装/卸载命令改经线程消息投递（WM_APP），去除 mpsc 轮询通道。回归自 e3f97da 的 hook 加固。
 - 新增 mouse_hook_toggle_round_trip 测试锁住切换路径；延迟不变量（泵循环内禁止 sleep）以代码注释形式固化。
-
-## [Unreleased]
 
 ## [0.1.6] - 2026-10-30
 
