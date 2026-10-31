@@ -6,6 +6,9 @@ import { emitTo } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { LogicalPosition, LogicalSize } from '@tauri-apps/api/dpi'
+import { shouldFetchFullContent } from './modules/openPolicy.js'
+import { createI18nStore, createThemeStore, sensitiveTextComputed } from './modules/settingsStore.js'
+import { reduce as reduceClearArmed, INITIAL_STATE, ARM_TIMEOUT_MS } from './modules/confirmArmed.js'
 
 const isZoomWin =
   getCurrentWindow().label === 'zoom' ||
@@ -20,53 +23,9 @@ window.addEventListener('unhandledrejection', () => {
   invoke('report_error', { msg: 'unhandled-rejection' }).catch(() => {})
 })
 
-const i18n = {
-  zh: {
-    all:'全部', text:'文本', image:'图片', pinned:'置顶', link:'链接', file:'文件',
-    search:'搜索剪贴板…', empty:'暂无内容', emptyHint:'复制任意内容（文本/图片/文件）后自动出现在这里', expired:'图片已过期',
-    noMatch:'没有匹配的结果', noMatchHint:'试试更短的关键词，或按 Esc 清空搜索',
-    copyHint:'点击条目粘贴 · ↑↓ 选择 · Enter 粘贴 · Del 删除', theme:'主题', lang:'语言',
-    statsTitle:'统计', settingsTitle:'设置',
-    statTotal:'总条目', statText:'文本', statImage:'图片', statLink:'链接', statFile:'文件',
-    statPinned:'置顶', statToday:'今日新增', statPastes:'累计粘贴', statDaily:'近 7 天复制量',
-    statTop:'最常粘贴 Top 5', times:'次',
-    setLimit:'历史上限', setLimitHint:'超出后自动清理最旧记录（置顶除外）', setAuto:'开机自动启动', setAutoHint:'登录 Windows 后在后台静默运行', shortcut:'呼出快捷键', about:'关于', save:'保存', saved:'设置已保存', setHotkey:'呼出热键', setHotkeyHint:'如 Alt+V / Ctrl+Alt+V，保存后生效；若被占用会提示失败', setSensitive:'敏感词过滤', setSensitivePh:'token, password, 密码', setSensitiveHint:'复制的内容包含这些词时不记录（逗号分隔）', setPause:'暂停采集', setPauseHint:'开启后照常复制粘贴，但不记录任何新内容', clearAll:'清空历史', clearAllHint:'删除所有条目及其图片与附件文件，不可恢复', clearBtn:'清空全部历史', clearConfirm:'再点一次确认！', cleared:'已清空 {n} 条', pausedTag:'采集中断·已暂停',
-    focusLost:'已复制到剪贴板，但无法聚焦原窗口，请手动 Ctrl+V', pasteFail:'粘贴失败，内容仍在剪贴板', dayToday:'今天', dayYesterday:'昨天', dayEarlier:'更早',
-    demoPasted:'在线演示：实际使用时这里会粘贴到原窗口',
-    pin:'置顶', del:'删除', clear:'清除',
-  },
-  en: {
-    all:'All', text:'Text', image:'Image', pinned:'Pinned', link:'Links', file:'Files',
-    search:'Search clipboard…', empty:'Nothing here yet', emptyHint:'Copy anything (text / image / files) and it shows up here', expired:'Expired',
-    noMatch:'No matching entries', noMatchHint:'Try a shorter keyword, or press Esc to clear the search',
-    copyHint:'Click to paste · ↑↓ select · Enter paste · Del delete', theme:'Theme', lang:'Lang',
-    statsTitle:'Stats', settingsTitle:'Settings',
-    statTotal:'Total', statText:'Text', statImage:'Images', statLink:'Links', statFile:'Files',
-    statPinned:'Pinned', statToday:'Today', statPastes:'Pastes', statDaily:'Last 7 days',
-    statTop:'Top 5 pasted', times:'×',
-    setLimit:'History limit', setLimitHint:'Oldest unpinned items are cleaned up beyond the limit', setAuto:'Launch at startup', setAutoHint:'Runs quietly in the background after sign-in', shortcut:'Summon shortcut', about:'About', save:'Save', saved:'Settings saved', setHotkey:'Summon hotkey', setHotkeyHint:'e.g. Alt+V / Ctrl+Alt+V — applied on save; warns if taken', setSensitive:'Sensitive filter', setSensitivePh:'token, password, secret', setSensitiveHint:'Copies containing these words are never recorded (comma separated)', setPause:'Pause capture', setPauseHint:'Copy and paste as usual — nothing new is recorded while on', clearAll:'Clear history', clearAllHint:'Deletes every entry with its images and side files. Cannot be undone.', clearBtn:'Clear all history', clearConfirm:'Click again to confirm!', cleared:'Cleared {n} item(s)', pausedTag:'Capture paused',
-    focusLost:'Copied to clipboard, but could not focus the previous window — press Ctrl+V manually', pasteFail:'Paste failed, content stays on clipboard', dayToday:'Today', dayYesterday:'Yesterday', dayEarlier:'Earlier',
-    demoPasted:'Demo: the real app pastes this into your previous window',
-    pin:'Pin', del:'Delete', clear:'Clear',
-  },
-}
-const lang = ref(localStorage.getItem('cv-lang') || 'zh')
-const t = (k) => i18n[lang.value][k] ?? k
-watch(lang, l => { document.documentElement.lang = l === 'zh' ? 'zh-CN' : 'en' })
-document.documentElement.lang = lang.value === 'zh' ? 'zh-CN' : 'en'
-function toggleLang() {
-  lang.value = lang.value === 'zh' ? 'en' : 'zh'
-  localStorage.setItem('cv-lang', lang.value)
-}
+const { lang, t, toggleLang } = createI18nStore()
 
-const theme = ref(localStorage.getItem('cv-theme') || 'dark')
-function applyTheme() { document.documentElement.dataset.theme = theme.value }
-function toggleTheme() {
-  theme.value = theme.value === 'dark' ? 'light' : 'dark'
-  localStorage.setItem('cv-theme', theme.value)
-  applyTheme()
-}
-applyTheme()
+const { theme, toggleTheme } = createThemeStore()
 
 const health = ref('...')
 const beatMs = ref(0)
@@ -138,13 +97,16 @@ function onSearch() {
 async function openStats() {
   showSettings.value = false
   showStats.value = true
+  // switching to the stats page invalidates a pending destructive
+  // confirmation (incident #10: armed state must not survive a page switch)
+  disarmClear('switch-page')
   stats.value = await invoke('stats')
 }
 function closeOverlays() {
   showStats.value = false
   showSettings.value = false
   // Dismissing settings invalidates a pending destructive confirmation.
-  clearArmed.value = false
+  disarmClear('panel-close')
   clearTimeout(clearTimer)
 }
 const dailyMax = computed(() => Math.max(1, ...(stats.value?.daily.map((d) => d[1]) ?? [1])))
@@ -164,18 +126,29 @@ watch(settings, () => {
     }
   }, 500)
 }, { deep: true })
-// clear-all is destructive: the button must be clicked twice within 3s
-const clearArmed = ref(false)
+// clear-all is destructive: the button must be clicked twice within 3s.
+// Decision logic lives in src/modules/confirmArmed.js (pure reducer, incident
+// #10 regression coverage); this side owns the ref and the expiry timer.
+const clearState = ref({ ...INITIAL_STATE })
+const clearArmed = computed(() => clearState.value.armed)
 let clearTimer = null
+function disarmClear(event) {
+  clearTimeout(clearTimer)
+  clearState.value = reduceClearArmed(clearState.value, event)
+}
+// losing focus (panel hidden by the Rust side / user alt-tabs) must
+// invalidate a pending destructive confirmation too (incident #10) — the 3s
+// disarm timer alone can be throttled while a hidden webview never gets
+// timers serviced
+function onBlurDisarm() { disarmClear('blur') }
 async function onClearAll() {
-  if (!clearArmed.value) {
-    clearArmed.value = true
-    clearTimeout(clearTimer)
-    clearTimer = setTimeout(() => { clearArmed.value = false }, 3000)
+  clearState.value = reduceClearArmed(clearState.value, 'click', Date.now())
+  clearTimeout(clearTimer)
+  if (clearState.value.armed) {
+    clearTimer = setTimeout(() => { disarmClear('expire') }, ARM_TIMEOUT_MS)
     return
   }
-  clearArmed.value = false
-  clearTimeout(clearTimer)
+  if (!clearState.value.fired) return
   try {
     const n = await invoke('clear_history')
     ++zoomRequestId
@@ -186,12 +159,7 @@ async function onClearAll() {
   } catch (e) { console.error(e) }
 }
 // keywords live in settings as a string array; the UI edits one comma-separated string
-const sensitiveText = computed({
-  get: () => (settings.value.sensitive_keywords || []).join(', '),
-  set: (v) => {
-    settings.value.sensitive_keywords = v.split(',').map((s) => s.trim()).filter(Boolean)
-  },
-})
+const sensitiveText = sensitiveTextComputed(settings)
 async function openSettings() {
   closeOverlays()
   showSettings.value = true
@@ -281,7 +249,7 @@ async function openZoom(c, e) {
   // for long texts before showing the zoom window. Oversized (>256KB) copies
   // keep the full text in a side file: their content column is only a
   // 2000-char preview, so text_path must trigger the fetch too.
-  if (c.kind !== 'image' && ((c.content || '').length >= 4096 || c.text_path)) {
+  if (shouldFetchFullContent(c)) {
     try { payload.text = ((await invoke('clip_content', { id: c.id })) || '').trim() } catch {}
   }
   if (requestId !== zoomRequestId) return // older async hover must not replace the newest
@@ -334,7 +302,7 @@ function onKey(e) {
   // typing in search: only Delete is dangerous (deletes the selected clip);
   // arrows/Enter stay live for list navigation
   if (e.key === 'Escape') {
-    if (showStats.value || showSettings.value) { clearArmed.value = false; closeOverlays(); return }
+    if (showStats.value || showSettings.value) { disarmClear('escape'); closeOverlays(); return }
     if (query.value) { clearSearch(); return }
     invoke('hide_panel_cmd')
     return
@@ -402,6 +370,7 @@ onMounted(async () => {
     nextTick(() => document.querySelector('.search')?.focus())
   }))
   window.addEventListener('keydown', onKey)
+  window.addEventListener('blur', onBlurDisarm)
   invoke('get_settings').then((st) => { settings.value = st }).catch(() => {})
   refresh()
   if (!isZoomWin) {
@@ -441,6 +410,7 @@ onBeforeUnmount(() => {
   unlisteners.forEach((u) => u())
   if (zoomHoverCleanup) zoomHoverCleanup()
   window.removeEventListener('keydown', onKey)
+  window.removeEventListener('blur', onBlurDisarm)
 })
 </script>
 

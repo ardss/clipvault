@@ -248,6 +248,10 @@ mod db;
 mod settings;
 mod win;
 
+// L2 guard tests only — the module itself is empty outside #[cfg(test)].
+#[cfg(test)]
+mod guards;
+
 use std::sync::atomic::Ordering;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -613,3 +617,72 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
         .build(app)?;
     Ok(())
 }
+
+/// Integration-test surface (tests/ipc_contract.rs): a mock-runtime app
+/// carrying the REAL invoke handler — all 16 IPC commands exactly as
+/// `run()` registers them — plus the REAL managed state (in-memory Db with
+/// the production schema, default SettingsState). It deliberately does NOT
+/// run run()'s setup: no tray, no global hotkey, no clipboard listener, no
+/// mouse hook — a headless runner has no desktop for those, and mock_runtime
+/// needs none of them for pure command dispatch.
+///
+/// Not feature-gated: `cfg(feature = "test")`/`cfg(test)` do not apply to
+/// integration-test targets, and CI's bare `cargo test` must pick this up
+/// unmodified. It compiles to one unreferenced function in the shipped
+/// binary (main.rs only calls run()).
+pub fn ipc_test_app() -> tauri::App<tauri::test::MockRuntime> {
+    let app = tauri::test::mock_builder()
+        // set_settings' hotkey path calls app.global_shortcut(); the plugin
+        // must be present for the validation branch to run instead of panicking.
+        // On MockRuntime shortcut registration lands in an in-memory map —
+        // no real OS hotkey is claimed.
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .invoke_handler(tauri::generate_handler![
+            commands::clip_content,
+            commands::create_zoom,
+            commands::register_zoom,
+            commands::report_error,
+            commands::heartbeat,
+            commands::list_clips,
+            commands::stats,
+            commands::toggle_pin,
+            commands::delete_clip,
+            commands::clear_history,
+            commands::paste_clip,
+            commands::show_panel_cmd,
+            commands::hide_panel_cmd,
+            settings::get_settings,
+            settings::set_settings,
+            settings::save_panel_height,
+        ])
+        .build(tauri::test::mock_context(tauri::test::noop_assets()))
+        .expect("mock app build");
+    let conn = rusqlite::Connection::open_in_memory().expect("in-memory db");
+    db::setup_schema(&conn).expect("schema setup on in-memory db");
+    app.manage(db::Db(Mutex::new(conn)));
+    app.manage(SettingsState(
+        Mutex::new(settings::Settings::default()),
+        // started "frozen" like the corrupt-file fallback: tests observe the
+        // unfreeze via set_settings/save_panel_height
+        std::sync::atomic::AtomicBool::new(true),
+    ));
+    app
+}
+
+/// Locked handle on the mock app's managed Db connection — lets integration
+/// tests seed/drain rows through the production schema without reaching into
+/// the private `db` module.
+pub fn ipc_test_db(
+    app: &tauri::App<tauri::test::MockRuntime>,
+) -> std::sync::MutexGuard<'_, rusqlite::Connection> {
+    use tauri::Manager;
+    let st: &db::Db = app.state::<db::Db>().inner();
+    st.0.lock().unwrap_or_else(|p| p.into_inner())
+}
+
+/// Signature probe for tests/ipc_contract.rs: show_panel_cmd's only behavior
+/// is real system side effects (WH_MOUSE_LL hook install), so the contract
+/// test asserts its registered signature at compile time instead of invoking
+/// it (plan §3.3 degrade rule ③).
+#[allow(non_upper_case_globals)]
+pub static __probe_show_panel_cmd_sig: fn(tauri::AppHandle) = commands::show_panel_cmd;

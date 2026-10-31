@@ -1,0 +1,19 @@
+{
+  "_comment": "多机登记值模型（TESTING_ARCHITECTURE_PLAN §3.5，事故 #7 承接物）。这里登记的是各机 *期望偏好*，不是硬编码白名单：热键/面板高度是用户偏好，用户改键后必须同步更新本文件（DEPLOYMENT.md SOP），登记滞后视为流程缺陷而非脚本缺陷。A 机字段来自 DEPLOYMENT.md（2026-10-30 还原 Alt+V、面板高 582）；B 机字段来自本机 %APPDATA%\\com.clipvault.app\\settings.json 实读（2026-10-31）。",
+  "machines": {
+    "a-machine": {
+      "host": "DESKTOP-CD2C03F",
+      "ssh_alias": "a-machine",
+      "hotkey": "Alt+V",
+      "autostart": true,
+      "panel_height": 582
+    },
+    "b-machine": {
+      "host": "Du",
+      "ssh_alias": null,
+      "hotkey": "Alt+V",
+      "autostart": true,
+      "panel_height": 676
+    }
+  }
+}

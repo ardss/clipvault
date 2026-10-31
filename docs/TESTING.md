@@ -21,6 +21,7 @@ npm run build
 | 深度测试 (stress) | 标记 `#[ignore]` 的深度套件（压力/长路径） | `cargo test -- --ignored` |
 | 故障注入 | 模拟异常路径（崩溃、损坏数据等） | `cargo run --example failinject` |
 | Demo 页 E2E | Playwright 跑 `docs/demo`，**唯一允许的 UI 自动化** | 见 `docs/demo` 说明 |
+| 维护页 E2E（demo-shim） | `tests/maintenance-browser-e2e.mjs`（node:test + playwright-core，跑 `dist/` 静态产物，不启动真实 GUI、不碰真实桌面） | `npm run test:e2e:demo`（先 `vite build` 再跑，缺 build 会 404 全红） |
 
 **关键原则：每一处新的代码路径，尤其是涉及窗口生命周期、线程与 IPC 的改动，必须经过运行时验证。代码审查通过不等于测试通过。**
 

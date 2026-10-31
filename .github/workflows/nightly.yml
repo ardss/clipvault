@@ -1,0 +1,53 @@
+name: Nightly
+
+# TESTING_ARCHITECTURE_PLAN §3.3 (phase 2): nightly gate for the deep
+# `#[ignore]` suite (db stress benches — all live in the lib test target) and
+# the webview e2e layer. Native interaction probes (hook_latency_probe /
+# clipboard_listener_probe / paste e2e) NEVER run here — they need an
+# interactive desktop and the CV_E2E_ISOLATED gate on a real machine
+# (scripts/run-native-probes.ps1). Target selection rule (plan §3.3): the
+# deep suite is selected by `--lib`; `--ignored --skip/--exact <target-name>`
+# forms match full test names, not target names — they select 0 tests and are
+# gate-config errors (proven wrong twice in review).
+
+on:
+  schedule:
+    # every night 23:30 UTC (B-machine daytime offset safe slot)
+    - cron: '30 23 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  deep-suite:
+    # explicitly pinned: do NOT let a runner-matrix default drift this onto a
+    # non-Windows OS — the suite compiles Win32 code paths
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> src-tauri/target
+      # deep #[ignore] suite: the db stress benches live in the LIB test
+      # target, so `--lib` picks them up (plus any lib-level ignored tests)
+      # without pulling the interaction probes (separate --test targets)
+      - run: cargo test --lib -- --ignored
+        working-directory: src-tauri
+
+  webview-e2e:
+    # panel-webview-e2e.mjs (TESTING_ARCHITECTURE_PLAN §3.4: playwright-core +
+    # demo-shim against built dist, no real GUI app) — wired in phase 3.
+    # must stay windows-latest: the script launches Edge via
+    # chromium.launch({channel:'msedge'}) and playwright-core downloads no
+    # browsers — ubuntu runners do not preinstall Edge.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: panel webview e2e
+        run: node tests/panel-webview-e2e.mjs

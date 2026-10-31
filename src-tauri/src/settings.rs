@@ -92,12 +92,12 @@ fn read_settings_from(dir: &std::path::Path) -> (Settings, bool) {
     (normalize(Settings::default()), true)
 }
 
-pub(crate) fn load_settings(app: &AppHandle) -> (Settings, bool) {
+pub(crate) fn load_settings<R: tauri::Runtime>(app: &AppHandle<R>) -> (Settings, bool) {
     let dir = app.path().app_data_dir().unwrap_or_default();
     read_settings_from(&dir)
 }
 
-pub(crate) fn save_settings(app: &AppHandle, s: &Settings) {
+pub(crate) fn save_settings<R: tauri::Runtime>(app: &AppHandle<R>, s: &Settings) {
     let dir = app.path().app_data_dir().unwrap_or_default();
     save_settings_to(&dir, s);
 }
@@ -125,7 +125,7 @@ fn merge_preserving_panel_height(incoming: Settings, current_panel_height: f64) 
     normalize(merged)
 }
 
-pub(crate) fn apply_settings(app: &AppHandle, s: &Settings) {
+pub(crate) fn apply_settings<R: tauri::Runtime>(app: &AppHandle<R>, s: &Settings) {
     if let Some(w) = app.get_webview_window("panel") {
         let h = if s.panel_height.is_finite() {
             s.panel_height.clamp(360.0, 900.0)
@@ -144,7 +144,11 @@ pub(crate) fn apply_settings(app: &AppHandle, s: &Settings) {
 /// thread's message queue, and only the main thread pumps the plugin's loop.
 /// `fallback` is re-registered when the requested combo fails, so the app is
 /// never left without any summon shortcut.
-fn register_hotkey_now(app: &AppHandle, hotkey: &str, fallback: &str) -> Result<(), String> {
+fn register_hotkey_now<R: tauri::Runtime>(
+    app: &AppHandle<R>,
+    hotkey: &str,
+    fallback: &str,
+) -> Result<(), String> {
     use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
     let g = app.global_shortcut();
     // validate BEFORE unregister_all — a rejected change must not destroy the
@@ -175,7 +179,11 @@ fn register_hotkey_now(app: &AppHandle, hotkey: &str, fallback: &str) -> Result<
 
 /// set_settings runs on an IPC worker thread: post the registration to the
 /// main thread and wait briefly for its result so a conflict surfaces as Err.
-fn register_hotkey_via_main(app: &AppHandle, hotkey: &str, fallback: &str) -> Result<(), String> {
+fn register_hotkey_via_main<R: tauri::Runtime>(
+    app: &AppHandle<R>,
+    hotkey: &str,
+    fallback: &str,
+) -> Result<(), String> {
     let (tx, rx) = std::sync::mpsc::channel();
     let applied = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let app2 = app.clone();
@@ -332,8 +340,8 @@ pub(crate) fn get_settings(state: tauri::State<SettingsState>) -> Settings {
 }
 
 #[tauri::command]
-pub(crate) fn set_settings(
-    app: AppHandle,
+pub(crate) fn set_settings<R: tauri::Runtime>(
+    app: AppHandle<R>,
     state: tauri::State<SettingsState>,
     settings: Settings,
 ) -> Result<(), String> {
@@ -363,8 +371,8 @@ pub(crate) fn set_settings(
 }
 
 #[tauri::command]
-pub(crate) fn save_panel_height(
-    app: AppHandle,
+pub(crate) fn save_panel_height<R: tauri::Runtime>(
+    app: AppHandle<R>,
     state: tauri::State<SettingsState>,
     h: f64,
 ) -> Result<(), String> {

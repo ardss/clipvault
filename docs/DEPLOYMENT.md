@@ -39,6 +39,7 @@
 - 杀旧进程：`Get-Process app | Stop-Process -Force`；重编译前先杀 cargo/rustc
 - GitHub API：curl 必带 `--ssl-no-revoke`；发版后 draft 需手动 PATCH `{"draft":false}`
 - 升级迁移：先备份 db/wal/shm/settings，停进程后二次复制 db，再装新包
+- **部署后配置校验（每次部署必做，只读）**：在 B 机跑 `powershell -File scripts/check-machine-config.ps1 -Compare a-machine -SshHost a-machine`——经 SSH 单行（`powershell -NoProfile -EncodedCommand`，规避 cmd 转义）读取 A 机本地 `%APPDATA%\com.clipvault.app\settings.json` 的 hotkey/autostart/panel_height 并与 `docs/machine-registry.json` 登记值对比，对比在 B 机侧完成。**只读校验，允许经 SSH**；禁止把安装/卸载/合成输入外推到 SSH。输出 DRIFT 时：若属用户改偏好，先更新 machine-registry.json（登记滞后是流程缺陷），再核机器配置。定位是部署后检测层（事故 #7 热键继承发生在安装时点，本检查只能事后发现）
 
 ## 产品维护迭代 #1（2026-10-12）
 

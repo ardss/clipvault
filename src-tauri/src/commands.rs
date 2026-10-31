@@ -120,7 +120,7 @@ mod paste_threading_tests {
     /// under test (clippy::manual_async_fn allowed on purpose).
     #[allow(clippy::manual_async_fn)]
     fn paste_clip_future<'a>(
-        app: tauri::AppHandle,
+        app: tauri::AppHandle<tauri::Wry>,
         state: tauri::State<'a, crate::db::Db>,
         id: i64,
     ) -> impl std::future::Future<Output = Result<(), String>> + Send + 'a {
@@ -289,7 +289,7 @@ mod focus_handshake_tests {
     }
 }
 
-pub(crate) fn show_panel(app: &AppHandle) {
+pub(crate) fn show_panel<R: tauri::Runtime>(app: &AppHandle<R>) {
     win::set_mouse_hook(true);
     if let Some(w) = app.get_webview_window("panel") {
         cvlog!("[cv] panel url: {:?}", w.url());
@@ -361,7 +361,7 @@ pub(crate) fn show_panel(app: &AppHandle) {
     }
 }
 
-pub(crate) fn hide_panel(app: &AppHandle) {
+pub(crate) fn hide_panel<R: tauri::Runtime>(app: &AppHandle<R>) {
     if let Some(w) = app.get_webview_window("panel") {
         let _ = w.hide();
     }
@@ -382,7 +382,7 @@ pub(crate) fn hide_panel(app: &AppHandle) {
 /// Lazily creates the zoom preview window with a fixed, code-defined config —
 /// the frontend never needs the broader create-webview-window permission.
 #[tauri::command]
-pub(crate) async fn create_zoom(app: tauri::AppHandle) -> Result<(), String> {
+pub(crate) async fn create_zoom<R: tauri::Runtime>(app: tauri::AppHandle<R>) -> Result<(), String> {
     use tauri::WebviewUrl;
     // async => runs on the IPC runtime thread. This MUST NOT run on the main
     // thread: build() blocks until the webview initializer event fires, and
@@ -418,7 +418,7 @@ pub(crate) async fn create_zoom(app: tauri::AppHandle) -> Result<(), String> {
 /// The zoom window is created lazily by the frontend; it registers its HWND
 /// here on mount so the native watchdog can find it.
 #[tauri::command]
-pub(crate) fn register_zoom(app: tauri::AppHandle) {
+pub(crate) fn register_zoom<R: tauri::Runtime>(app: tauri::AppHandle<R>) {
     use std::sync::atomic::Ordering;
     cvlog!(
         "[cv] register_zoom from label={}",
@@ -469,7 +469,7 @@ mod js_error_privacy_tests {
 }
 
 #[tauri::command]
-pub(crate) fn report_error(app: AppHandle, msg: String) {
+pub(crate) fn report_error<R: tauri::Runtime>(app: AppHandle<R>, msg: String) {
     // Clipboard content may appear in arbitrary JS exception text. Only log known event classes.
     let category = js_error_category(&msg);
     eprintln!("[cv-js-error] {category}");
@@ -532,7 +532,10 @@ pub(crate) fn delete_clip(state: tauri::State<db::Db>, id: i64) -> Result<(), St
 /// Wipes every clip: rows plus their on-disk images, thumbnails and
 /// oversized-text side files. Returns the number of entries removed.
 #[tauri::command]
-pub(crate) fn clear_history(app: AppHandle, state: tauri::State<db::Db>) -> Result<usize, String> {
+pub(crate) fn clear_history<R: tauri::Runtime>(
+    app: AppHandle<R>,
+    state: tauri::State<db::Db>,
+) -> Result<usize, String> {
     let victims = {
         let conn = state.0.lock().unwrap_or_else(|p| p.into_inner());
         db::clear_all(&conn)?
@@ -552,8 +555,8 @@ pub(crate) fn clear_history(app: AppHandle, state: tauri::State<db::Db>) -> Resu
 /// focus/injection sequence is legal from a worker thread — SetFocus rides
 /// AttachThreadInput, and the actual keystroke goes to the injector process.
 #[tauri::command]
-pub(crate) async fn paste_clip(
-    app: AppHandle,
+pub(crate) async fn paste_clip<R: tauri::Runtime>(
+    app: AppHandle<R>,
     state: tauri::State<'_, db::Db>,
     id: i64,
 ) -> Result<(), String> {
@@ -677,11 +680,11 @@ pub(crate) async fn paste_clip(
 }
 
 #[tauri::command]
-pub(crate) fn show_panel_cmd(app: AppHandle) {
+pub(crate) fn show_panel_cmd<R: tauri::Runtime>(app: AppHandle<R>) {
     show_panel(&app);
 }
 
 #[tauri::command]
-pub(crate) fn hide_panel_cmd(app: AppHandle) {
+pub(crate) fn hide_panel_cmd<R: tauri::Runtime>(app: AppHandle<R>) {
     hide_panel(&app);
 }

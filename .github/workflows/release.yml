@@ -15,6 +15,11 @@ jobs:
           $tag = "${{ github.ref_name }}".TrimStart('v')
           $conf = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
           if ($tag -ne $conf) { throw "tag v$tag != tauri.conf.json version $conf — bump versions before tagging" }
+      # L5 machine gates (TESTING_ARCHITECTURE_PLAN §3.5) — deliberately NO
+      # continue-on-error anywhere below: a red gate must block the tag build
+      - name: check-versions (5-way consistency)
+        shell: pwsh
+        run: scripts/check-versions.ps1
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -36,6 +41,25 @@ jobs:
       - run: npm ci
       # full bundle: NSIS installer (+ the bare exe as a portable fallback)
       - run: npx tauri build
+      # §3.5 ②: assert the release build actually carries the root
+      # [profile.release] flags (0.1.6 incident); recompiles only the app
+      # crate if cargo is fresh
+      - name: check-build-profile (lto/strip really applied)
+        shell: pwsh
+        run: scripts/check-build-profile.ps1
+      # §3 / dist freshness: bundle must be newer than every dist file
+      - name: check-dist-freshness (timestamps)
+        shell: pwsh
+        run: scripts/check-dist-freshness.ps1
+      # incident #8 defect half: refuse to attach artifacts while a P1 is open
+      # (publication half — the draft→published write-then-read verification —
+      # runs manually via release-gate.ps1 -VerifyPublished after the
+      # authenticated PATCH, per RELEASE_CHECKLIST §7-2/§7-3)
+      - name: release-gate (no open P1)
+        shell: pwsh
+        run: scripts/release-gate.ps1 -CheckP1
+        env:
+          GH_TOKEN: ${{ github.token }}
       - name: Collect artifacts + checksums
         shell: pwsh
         run: |
