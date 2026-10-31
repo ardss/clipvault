@@ -167,7 +167,10 @@ unsafe fn read_clipboard_text() -> String {
             }
             std::thread::sleep(Duration::from_millis(20));
         }
-        assert!(opened, "OpenClipboard for read-back: held by another process for >1s");
+        assert!(
+            opened,
+            "OpenClipboard for read-back: held by another process for >1s"
+        );
         let h = GetClipboardData(CF_UNICODETEXT).expect("GetClipboardData");
         let h = HGLOBAL(h.0);
         let ptr = GlobalLock(h);
