@@ -590,12 +590,16 @@ onBeforeUnmount(() => {
         <div class="set-card">
           <div class="set-head">
             <span class="set-name">{{ t('setSensitive') }}</span>
+            <label class="switch">
+              <input type="checkbox" v-model="settings.sensitive_filter_enabled" :aria-label="t('setSensitive')" />
+              <span class="track"><span class="knob"></span></span>
+            </label>
           </div>
           <input class="set-input" v-model="sensitiveText" :placeholder="t('setSensitivePh')"
                  spellcheck="false" :aria-label="t('setSensitive')" />
           <div class="set-hint">{{ t('setSensitiveHint') }}</div>
         </div>
-        <div class="about">{{ t('about') }} ClipVault v0.1.9 · MIT</div>
+        <div class="about">{{ t('about') }} ClipVault v0.1.10 · MIT</div>
       </div>
     </div>
 

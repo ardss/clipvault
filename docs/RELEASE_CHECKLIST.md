@@ -66,7 +66,8 @@ taskkill //F //IM cargo.exe //T 2>/dev/null; taskkill //F //IM rustc.exe //T 2>/
 
 1. CI 出 draft 后：`gh release download`（draft 资产需认证，URL 直连是 404 "Not Found"）
 2. 核 SHA256 → B 机静默安装 → **确认进程存活 ≥15 秒且 cv.log 有 `hotkey registered`**（启动路径改过代码时必须做，任何发版都建议做）
-3. 活了 → publish；没活 → 停止发布、修复、重出 tag。**publish 之前生产机（B）允许短暂装 draft 包**——装坏包比公开坏包便宜。
+3. 活了 → **交用户验收**（给 2-3 分钟验收单：核心路径 + 本版新功能）。**用户明确回复验收通过后才 publish**——draft 对外不可见，验收期间坏包零外溢（2026-11-01 用户确立的流程；v0.1.9 首包启动崩溃若按此流程走，根本不会公开）。
+4. 验收不通过 → 修复 → 重出 tag → 回到第 1 步。publish 之前生产机（B）允许短暂装 draft 包——装坏包比公开坏包便宜。
 
 ## 7. 发布操作门禁（2026-10-26 误发布事故教训，GPT 批准）
 

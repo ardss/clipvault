@@ -22,7 +22,8 @@ Press `Alt+V` to summon the panel → search → click to paste back where you c
 - **Dark & light theme, Chinese & English UI**: switch inside the panel, remembered
 - **Stats**: totals / categories / 7-day trend / top 5 pasted
 - **Optional autostart**, tray icon, draggable panel height that sticks
-- **Pause capture** and **wipe all history** with one click each
+- **Pause capture** (tray one-click, optional auto-resume) and **wipe all history** with one click each
+- **Privacy interception, all opt-in**: sensitive-keyword filter (with a kill switch), source-app exclusion, image-capture toggle; password-manager-flagged copies are never recorded (Windows standard)
 - **Configurable summon hotkey** (conflict-safe re-registration)
 - **Oversized text** (>256 KB) is offloaded to a local file with an inline preview — nothing is silently dropped
 
