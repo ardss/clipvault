@@ -16,8 +16,10 @@
 
 ```bash
 cargo fmt --check
+cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 cargo test
+> 2026-11-01：fmt 连续两版（v0.1.8/v0.1.9 首轮 CI）被拦后固化为发版前必跑第一项——本地清单此前漏了它。
 cargo test -- --ignored   # deep suite
 npm run build
 npx tauri build   # 仅 CI 执行——本仓库正式候选包唯一来源是 GitHub Release CI；Windows B 当前环境禁止本地跑（环境操作限制，非 Tauri 通用约束）
