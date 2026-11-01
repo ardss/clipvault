@@ -4,7 +4,7 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::db;
-use crate::settings::SettingsState;
+use crate::settings::{self, SettingsState};
 use crate::win;
 
 /// PNG-format bytes (registered "PNG" clipboard format) → stored PNG.
@@ -71,16 +71,26 @@ pub(crate) fn handle_clipboard_change(app: &AppHandle) {
     if self_write_at_entry {
         return;
     }
-    // capture paused from settings — copies go to the real clipboard
-    // untouched, nothing is recorded
-    if app
-        .state::<SettingsState>()
-        .0
-        .lock()
-        .unwrap_or_else(|p| p.into_inner())
-        .paused
-    {
+    // capture paused from settings (with auto-resume) — copies go to the
+    // real clipboard untouched, nothing is recorded
+    if settings::capture_paused(app) {
         return;
+    }
+    // source-app exclusion: clipboard writes from excluded apps are never
+    // recorded. A None owner (no-window writer or failed query) means
+    // "cannot attribute" — do not exclude on it.
+    let excluded = {
+        let state = app.state::<SettingsState>();
+        let s = state.0.lock().unwrap_or_else(|p| p.into_inner());
+        s.excluded_apps.clone()
+    };
+    if !excluded.is_empty() {
+        if let Some(owner) = win::clipboard_owner_process() {
+            if app_is_excluded(&owner, &excluded) {
+                cvlog!("[cv] capture skipped: source app excluded ({owner})");
+                return;
+            }
+        }
     }
     // password managers flag sensitive copies — never record those. Writers
     // put formats on the clipboard in steps, so re-check a few times before
@@ -104,9 +114,9 @@ pub(crate) fn handle_clipboard_change(app: &AppHandle) {
     }
     // snapshot settings once so limit and keywords come from the same state
     let settings_state = app.state::<SettingsState>();
-    let (limit, keywords) = {
+    let (limit, keywords, image_capture) = {
         let s = settings_state.0.lock().unwrap_or_else(|p| p.into_inner());
-        (s.history_limit, s.sensitive_keywords.clone())
+        (s.history_limit, s.sensitive_keywords.clone(), s.image_capture)
     };
     // ---- snapshot the clipboard OUTSIDE the db lock ----
     // a read can block for hundreds of ms (open retries, a 20MB memcpy) and
@@ -196,23 +206,28 @@ pub(crate) fn handle_clipboard_change(app: &AppHandle) {
                 }
                 Some(Incoming::BigText(clean, path))
             }
-        } else if let Some(png) = win::read_clipboard_png_raw() {
-            // Snipping Tool / browsers / Office write exact "PNG" bytes —
-            // decoded by the PNG path (save_image_png), never as a DIB
-            cvlog!("[cv] png format read: {} bytes", png.len());
-            if png.len() <= 20 * 1024 * 1024 {
-                Some(Incoming::ImagePng(png))
-            } else {
-                None
-            }
-        } else if let Some(dib) = win::read_clipboard_dib_vec() {
-            win::log_clipboard_formats();
-            if dib.len() <= 20 * 1024 * 1024 {
-                Some(Incoming::ImageDib(dib))
+        } else if image_capture {
+            if let Some(png) = win::read_clipboard_png_raw() {
+                // Snipping Tool / browsers / Office write exact "PNG" bytes —
+                // decoded by the PNG path (save_image_png), never as a DIB
+                cvlog!("[cv] png format read: {} bytes", png.len());
+                if png.len() <= 20 * 1024 * 1024 {
+                    Some(Incoming::ImagePng(png))
+                } else {
+                    None
+                }
+            } else if let Some(dib) = win::read_clipboard_dib_vec() {
+                win::log_clipboard_formats();
+                if dib.len() <= 20 * 1024 * 1024 {
+                    Some(Incoming::ImageDib(dib))
+                } else {
+                    None
+                }
             } else {
                 None
             }
         } else {
+            cvlog!("[cv] image capture disabled by settings — image copy skipped");
             None
         }
     };
@@ -349,6 +364,18 @@ fn is_sensitive_copy(content: &str, keywords: &[String]) -> bool {
     })
 }
 
+/// Excluded-apps match: process-name stem, case-insensitive, ".exe" suffix
+/// tolerated on the configured side (normalize strips it too — this is the
+/// runtime half so a hand-edited settings.json works before any save).
+fn app_is_excluded(owner: &str, excluded: &[String]) -> bool {
+    let owner = owner.to_lowercase();
+    excluded.iter().any(|e| {
+        let e = e.trim().to_lowercase();
+        let e = e.strip_suffix(".exe").unwrap_or(&e);
+        !e.is_empty() && e == owner
+    })
+}
+
 /// Removes control characters that break rendering/search (keeps newline, CR, tab).
 fn sanitize_text(s: &str) -> String {
     s.chars()
@@ -425,6 +452,20 @@ mod logic_tests {
         assert!(is_sensitive_copy("C:/documents/Secret/notes.txt", &terms));
         assert!(!is_sensitive_copy("harmless meeting notes", &terms));
         assert!(!is_sensitive_copy("anything", &[" ".to_string()]));
+    }
+
+    #[test]
+    fn excluded_apps_match_is_case_insensitive_and_exe_tolerant() {
+        let list = vec!["KeePassXC".to_string()];
+        assert!(app_is_excluded("keepassxc", &list));
+        assert!(app_is_excluded("KeePassXC", &list));
+        let dot_exe = vec!["keepass.exe".to_string()];
+        assert!(app_is_excluded("keepass", &dot_exe));
+        assert!(!app_is_excluded("keepassxc2", &list));
+        assert!(!app_is_excluded("keepass", &list));
+        assert!(!app_is_excluded("anything", &["  ".to_string()]));
+        // normalize also strips .exe — both sides tolerate it
+        assert!(app_is_excluded("msedge", &["MsEdge.EXE".to_string()]));
     }
 
     // ---- sanitize_text ----

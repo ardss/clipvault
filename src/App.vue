@@ -7,7 +7,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { LogicalPosition, LogicalSize } from '@tauri-apps/api/dpi'
 import { shouldFetchFullContent } from './modules/openPolicy.js'
-import { createI18nStore, createThemeStore, sensitiveTextComputed } from './modules/settingsStore.js'
+import { createI18nStore, createThemeStore, sensitiveTextComputed, excludedAppsComputed } from './modules/settingsStore.js'
 import { reduce as reduceClearArmed, INITIAL_STATE, ARM_TIMEOUT_MS } from './modules/confirmArmed.js'
 
 const isZoomWin =
@@ -35,7 +35,7 @@ const clips = ref([])
 const showStats = ref(false)
 const stats = ref(null)
 const showSettings = ref(false)
-const settings = ref({ history_limit: 1000, panel_height: 540, autostart: false })
+const settings = ref({ history_limit: 1000, panel_height: 540, autostart: false, image_capture: true, excluded_apps: [], auto_resume_minutes: 0 })
 const toast = ref('')
 let toastTimer = null
 let searchTimer = null
@@ -160,6 +160,7 @@ async function onClearAll() {
 }
 // keywords live in settings as a string array; the UI edits one comma-separated string
 const sensitiveText = sensitiveTextComputed(settings)
+const excludedApps = excludedAppsComputed(settings)
 async function openSettings() {
   closeOverlays()
   showSettings.value = true
@@ -546,6 +547,32 @@ onBeforeUnmount(() => {
         </div>
         <div class="set-card">
           <div class="set-head">
+            <span class="set-name">{{ t('setImage') }}</span>
+            <label class="switch">
+              <input type="checkbox" v-model="settings.image_capture" :aria-label="t('setImage')" />
+              <span class="track"><span class="knob"></span></span>
+            </label>
+          </div>
+          <div class="set-hint">{{ t('setImageHint') }}</div>
+        </div>
+        <div class="set-card">
+          <div class="set-head">
+            <span class="set-name">{{ t('setExclude') }}</span>
+          </div>
+          <input class="set-input" v-model="excludedApps" :placeholder="t('setExcludePh')"
+                 spellcheck="false" :aria-label="t('setExclude')" />
+          <div class="set-hint">{{ t('setExcludeHint') }}</div>
+        </div>
+        <div class="set-card">
+          <div class="set-head">
+            <span class="set-name">{{ t('setResume') }}</span>
+            <span class="set-value">{{ settings.auto_resume_minutes }}</span>
+          </div>
+          <input class="set-slider" type="range" v-model.number="settings.auto_resume_minutes" min="0" max="60" step="5" />
+          <div class="set-hint">{{ t('setResumeHint') }}</div>
+        </div>
+        <div class="set-card">
+          <div class="set-head">
             <span class="set-name">{{ t('clearAll') }}</span>
             <button class="clear-btn" :class="{ armed: clearArmed }" @click="onClearAll">{{ clearArmed ? t('clearConfirm') : t('clearBtn') }}</button>
           </div>
@@ -568,7 +595,7 @@ onBeforeUnmount(() => {
                  spellcheck="false" :aria-label="t('setSensitive')" />
           <div class="set-hint">{{ t('setSensitiveHint') }}</div>
         </div>
-        <div class="about">{{ t('about') }} ClipVault v0.1.6 · MIT</div>
+        <div class="about">{{ t('about') }} ClipVault v0.1.9 · MIT</div>
       </div>
     </div>
 

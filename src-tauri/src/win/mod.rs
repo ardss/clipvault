@@ -301,6 +301,40 @@ pub fn set_mouse_hook(on: bool) {
     MOUSE_HOOK_DESIRED.store(!on, Ordering::SeqCst);
 }
 
+/// Process name (lowercased file stem, e.g. "msedge") of the window that
+/// owns the current clipboard write, for the excluded-apps capture filter.
+/// None when the writer has no window or the query fails — callers must
+/// treat None as "cannot attribute, do not exclude".
+pub fn clipboard_owner_process() -> Option<String> {
+    use windows::core::PWSTR;
+    use windows::Win32::System::Threading::{
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
+        PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+    unsafe {
+        let hwnd = GetClipboardOwner().ok()?;
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        if pid == 0 {
+            return None;
+        }
+        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
+        let mut buf = [0u16; 512];
+        let mut len = buf.len() as u32;
+        QueryFullProcessImageNameW(
+            handle,
+            PROCESS_NAME_WIN32,
+            PWSTR(buf.as_mut_ptr()),
+            &mut len,
+        )
+        .ok()?;
+        let path = String::from_utf16_lossy(&buf[..len as usize]);
+        std::path::Path::new(&path)
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_lowercase())
+    }
+}
+
 #[cfg(test)]
 mod mouse_hook_tests {
     /// Machine-enforced invariant of the 2026-10-31 incident: the low-level

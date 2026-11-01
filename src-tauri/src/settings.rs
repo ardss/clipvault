@@ -17,10 +17,26 @@ pub struct Settings {
     pub sensitive_keywords: Vec<String>,
     #[serde(default)]
     pub paused: bool,
+    /// record image copies (PNG/DIB) at all — images cannot pass a keyword
+    /// filter, so this is the user's coarse "no screenshots in history" lever
+    #[serde(default = "default_true")]
+    pub image_capture: bool,
+    /// clipboard writes from these source apps (process name, case-insensitive)
+    /// are never recorded
+    #[serde(default)]
+    pub excluded_apps: Vec<String>,
+    /// when >0, a pause set via tray/UI auto-resumes after this many minutes
+    /// (0 = pause until manually resumed)
+    #[serde(default)]
+    pub auto_resume_minutes: u32,
 }
 
 fn default_hotkey() -> String {
     "Alt+V".into()
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Default for Settings {
@@ -32,6 +48,9 @@ impl Default for Settings {
             hotkey: default_hotkey(),
             sensitive_keywords: Vec::new(),
             paused: false,
+            image_capture: true,
+            excluded_apps: Vec::new(),
+            auto_resume_minutes: 0,
         }
     }
 }
@@ -45,6 +64,54 @@ pub struct SettingsState(
     pub std::sync::atomic::AtomicBool,
 );
 
+/// Runtime pause deadline for auto-resume. Never persisted: normalize
+/// forces paused=false at launch, so a deadline never survives a reboot.
+pub struct PauseUntil(pub Mutex<Option<std::time::Instant>>);
+
+/// Whether capture is paused, consuming an expired auto-resume deadline
+/// (expiry unpauses in-memory; settings.json never carries paused=true).
+pub(crate) fn capture_paused<R: tauri::Runtime>(app: &AppHandle<R>) -> bool {
+    let state = app.state::<SettingsState>();
+    let mut s = state.0.lock().unwrap_or_else(|p| p.into_inner());
+    if !s.paused {
+        return false;
+    }
+    let until_state = app.state::<PauseUntil>();
+    let mut until = until_state.0.lock().unwrap_or_else(|p| p.into_inner());
+    if let Some(t) = *until {
+        if std::time::Instant::now() >= t {
+            s.paused = false;
+            *until = None;
+            cvlog!("[cv] pause auto-resumed");
+            return false;
+        }
+    }
+    true
+}
+
+/// Tray/UI pause toggle. With auto_resume_minutes > 0 a pause self-expires;
+/// with 0 it lasts until resumed. `paused` is intentionally NOT written to
+/// settings.json (normalize clears it on load).
+#[tauri::command]
+pub(crate) fn set_paused<R: tauri::Runtime>(app: AppHandle<R>, paused: bool) {
+    let state = app.state::<SettingsState>();
+    let minutes = {
+        let mut s = state.0.lock().unwrap_or_else(|p| p.into_inner());
+        s.paused = paused;
+        s.auto_resume_minutes
+    };
+    let until_state = app.state::<PauseUntil>();
+    *until_state.0.lock().unwrap_or_else(|p| p.into_inner()) = if paused && minutes > 0 {
+        Some(std::time::Instant::now() + Duration::from_secs(u64::from(minutes) * 60))
+    } else {
+        None
+    };
+    cvlog!(
+        "[cv] capture {}",
+        if paused { "paused" } else { "resumed" }
+    );
+}
+
 fn normalize(mut s: Settings) -> Settings {
     // hand-edited values must not wipe history or break the window
     s.history_limit = s.history_limit.clamp(1, 5000);
@@ -56,6 +123,18 @@ fn normalize(mut s: Settings) -> Settings {
     // a "pause for this meeting" must never turn into a permanent silent
     // stop after a reboot — capture always resumes on launch
     s.paused = false;
+    s.auto_resume_minutes = s.auto_resume_minutes.clamp(0, 240);
+    s.excluded_apps = s
+        .excluded_apps
+        .iter()
+        .map(|a| {
+            let a = a.trim().to_lowercase();
+            a.strip_suffix(".exe").unwrap_or(&a).to_string()
+        })
+        .filter(|a| !a.is_empty())
+        .collect();
+    s.excluded_apps.sort();
+    s.excluded_apps.dedup();
     s
 }
 
@@ -304,6 +383,31 @@ mod settings_tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// New privacy fields default SAFE (images on = Windows-like behavior,
+    /// no exclusions, no auto-resume) when an old settings.json predates
+    /// them, and normalize sanitizes hand-edited values.
+    #[test]
+    fn privacy_fields_default_safe_and_normalize_sanitizes() {
+        // good_json() has none of the new fields — old file, serde defaults
+        let (s, fell_back) = read_settings_from(&{
+            let dir = temp_dir("privacy-defaults");
+            std::fs::write(dir.join("settings.json"), good_json(100, 540.0)).unwrap();
+            dir
+        });
+        assert!(!fell_back);
+        assert!(s.image_capture, "image capture defaults ON (no surprises)");
+        assert!(s.excluded_apps.is_empty(), "no apps excluded by default");
+        assert_eq!(s.auto_resume_minutes, 0, "pause is manual by default");
+
+        let n = normalize(Settings {
+            excluded_apps: vec!["  KeePass.EXE ".into(), "msedge".into(), "keepass.exe".into(), "  ".into()],
+            auto_resume_minutes: 9999,
+            ..Settings::default()
+        });
+        assert_eq!(n.excluded_apps, vec!["keepass".to_string(), "msedge".to_string()]);
+        assert_eq!(n.auto_resume_minutes, 240, "clamp to 4 hours");
+    }
+
     /// set_settings must not write the stale frontend snapshot's
     /// panel_height over a fresher save_panel_height value (lost update:
     /// drag the panel taller, then flip any setting → the height rolled
@@ -317,6 +421,9 @@ mod settings_tests {
             hotkey: "Ctrl+Shift+V".into(),
             sensitive_keywords: vec!["pw".into()],
             paused: false,
+            image_capture: true,
+            excluded_apps: vec!["keepass".into()],
+            auto_resume_minutes: 5,
         };
         let merged = merge_preserving_panel_height(snapshot, 812.0);
         assert_eq!(merged.panel_height, 812.0, "the fresher height must win");

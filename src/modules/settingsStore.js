@@ -41,3 +41,13 @@ export function sensitiveTextComputed(settings) {
     },
   })
 }
+
+// Excluded source apps share the same comma-separated-input pattern.
+export function excludedAppsComputed(settings) {
+  return computed({
+    get: () => (settings.value.excluded_apps || []).join(', '),
+    set: (v) => {
+      settings.value.excluded_apps = v.split(',').map((s) => s.trim()).filter(Boolean)
+    },
+  })
+}

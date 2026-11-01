@@ -341,6 +341,7 @@ pub fn run() {
             apply_settings(app.handle(), &settings);
             build_tray(app)?;
             db::init(app)?;
+            app.manage(settings::PauseUntil(std::sync::Mutex::new(None)));
             app.manage(SettingsState(
                 Mutex::new(settings),
                 std::sync::atomic::AtomicBool::new(prune_frozen),
@@ -375,6 +376,7 @@ pub fn run() {
             commands::hide_panel_cmd,
             settings::get_settings,
             settings::set_settings,
+            settings::set_paused,
             settings::save_panel_height,
         ])
         .run(tauri::generate_context!())
@@ -598,11 +600,18 @@ mod image_reconcile_tests {
 }
 
 fn build_tray(app: &tauri::App) -> tauri::Result<()> {
-    use tauri::menu::{Menu, MenuItem};
+    use tauri::menu::{CheckMenuItem, Menu, MenuItem};
     use tauri::tray::TrayIconBuilder;
+    let paused_now = app
+        .state::<SettingsState>()
+        .0
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .paused;
     let show = MenuItem::with_id(app, "show", "显示面板", true, None::<&str>)?;
+    let pause = CheckMenuItem::with_id(app, "pause", "暂停采集", true, paused_now, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "退出 ClipVault", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&show, &quit])?;
+    let menu = Menu::with_items(app, &[&show, &pause, &quit])?;
     let mut tray = TrayIconBuilder::with_id("main");
     if let Some(icon) = app.default_window_icon() {
         tray = tray.icon(icon.clone());
@@ -611,6 +620,15 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
         .menu(&menu)
         .on_menu_event(|app, ev| match ev.id.as_ref() {
             "show" => show_panel(app),
+            "pause" => {
+                let currently = app
+                    .state::<SettingsState>()
+                    .0
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .paused;
+                settings::set_paused(app.clone(), !currently);
+            }
             "quit" => app.exit(0),
             _ => {}
         })
@@ -653,6 +671,7 @@ pub fn ipc_test_app() -> tauri::App<tauri::test::MockRuntime> {
             commands::hide_panel_cmd,
             settings::get_settings,
             settings::set_settings,
+            settings::set_paused,
             settings::save_panel_height,
         ])
         .build(tauri::test::mock_context(tauri::test::noop_assets()))
@@ -660,7 +679,8 @@ pub fn ipc_test_app() -> tauri::App<tauri::test::MockRuntime> {
     let conn = rusqlite::Connection::open_in_memory().expect("in-memory db");
     db::setup_schema(&conn).expect("schema setup on in-memory db");
     app.manage(db::Db(Mutex::new(conn)));
-    app.manage(SettingsState(
+    app.manage(settings::PauseUntil(std::sync::Mutex::new(None)));
+            app.manage(SettingsState(
         Mutex::new(settings::Settings::default()),
         // started "frozen" like the corrupt-file fallback: tests observe the
         // unfreeze via set_settings/save_panel_height
