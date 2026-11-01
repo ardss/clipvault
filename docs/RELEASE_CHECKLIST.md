@@ -60,6 +60,14 @@ taskkill //F //IM cargo.exe //T 2>/dev/null; taskkill //F //IM rustc.exe //T 2>/
 
 - 始终用 `npx tauri build`，不要用裸 `cargo build --release`（会带 dev 配置，见 postmortem-2026-09-11）
 
+## 6.5 Draft 先装机，后 Publish（2026-11-01 v0.1.9 启动崩溃事故新增）
+
+> 背景：v0.1.9 首包在托盘构建里读了未托管的 SettingsState，启动即 panic 退出（cv.log 无痕迹）。当时已把 release 公开 20 分钟，装机才发现进程起不来。顺序必须是：
+
+1. CI 出 draft 后：`gh release download`（draft 资产需认证，URL 直连是 404 "Not Found"）
+2. 核 SHA256 → B 机静默安装 → **确认进程存活 ≥15 秒且 cv.log 有 `hotkey registered`**（启动路径改过代码时必须做，任何发版都建议做）
+3. 活了 → publish；没活 → 停止发布、修复、重出 tag。**publish 之前生产机（B）允许短暂装 draft 包**——装坏包比公开坏包便宜。
+
 ## 7. 发布操作门禁（2026-10-26 误发布事故教训，GPT 批准）
 
 > 背景：v0.1.4 候选 Draft 因 `form.requestSubmit()` 程序化提交被 GitHub 服务端按发布处理，意外公开（2026-10-27）。事后取证确认已发布 Release **不可转回 Draft**（见下「另」注），最终处置为正文顶部警告加固并保持公开——并未回滚。以下 4 条为发布操作硬门禁：
