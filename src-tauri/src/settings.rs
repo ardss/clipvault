@@ -15,6 +15,12 @@ pub struct Settings {
     pub hotkey: String,
     #[serde(default)]
     pub sensitive_keywords: Vec<String>,
+    /// explicit kill-switch for the keyword filter. Defaults to true so an
+    /// old settings.json with configured keywords keeps filtering after the
+    /// upgrade (an empty list is a no-op anyway, so fresh installs behave
+    /// identically to "off").
+    #[serde(default = "default_true")]
+    pub sensitive_filter_enabled: bool,
     #[serde(default)]
     pub paused: bool,
     /// record image copies (PNG/DIB) at all — images cannot pass a keyword
@@ -47,6 +53,7 @@ impl Default for Settings {
             autostart: false,
             hotkey: default_hotkey(),
             sensitive_keywords: Vec::new(),
+            sensitive_filter_enabled: true,
             paused: false,
             image_capture: true,
             excluded_apps: Vec::new(),
@@ -394,6 +401,10 @@ mod settings_tests {
         assert!(!fell_back);
         assert!(s.image_capture, "image capture defaults ON (no surprises)");
         assert!(s.excluded_apps.is_empty(), "no apps excluded by default");
+        assert!(
+            s.sensitive_filter_enabled,
+            "filter stays on for old configs (empty list = no-op)"
+        );
         assert_eq!(s.auto_resume_minutes, 0, "pause is manual by default");
 
         let n = normalize(Settings {
@@ -425,6 +436,7 @@ mod settings_tests {
             autostart: true,
             hotkey: "Ctrl+Shift+V".into(),
             sensitive_keywords: vec!["pw".into()],
+            sensitive_filter_enabled: true,
             paused: false,
             image_capture: true,
             excluded_apps: vec!["keepass".into()],

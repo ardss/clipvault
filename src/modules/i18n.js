@@ -10,7 +10,7 @@ export const messages = {
     statTotal:'总条目', statText:'文本', statImage:'图片', statLink:'链接', statFile:'文件',
     statPinned:'置顶', statToday:'今日新增', statPastes:'累计粘贴', statDaily:'近 7 天复制量',
     statTop:'最常粘贴 Top 5', times:'次',
-    setLimit:'历史上限', setLimitHint:'超出后自动清理最旧记录（置顶除外）', setAuto:'开机自动启动', setAutoHint:'登录 Windows 后在后台静默运行', shortcut:'呼出快捷键', about:'关于', save:'保存', saved:'设置已保存', setHotkey:'呼出热键', setHotkeyHint:'如 Alt+V / Ctrl+Alt+V，保存后生效；若被占用会提示失败', setSensitive:'敏感词过滤', setSensitivePh:'token, password, 密码', setSensitiveHint:'开关打开且复制内容包含这些词时不记录（逗号分隔）', setPause:'暂停采集', setPauseHint:'开启后照常复制粘贴，但不记录任何新内容', setImage:'图片采集', setImageHint:'关闭后截图/图片复制只进真实剪贴板，不进历史（图片无法做敏感词过滤）', setExclude:'应用排除', setExcludePh:'keepass, msedge', setExcludeHint:'这些应用里复制的内容一律不记录（进程名，逗号分隔）', setResume:'暂停自动恢复', setResumeHint:'暂停后自动恢复的分钟数，0 表示手动恢复', clearAll:'清空历史', clearAllHint:'删除所有条目及其图片与附件文件，不可恢复', clearBtn:'清空全部历史', clearConfirm:'再点一次确认！', cleared:'已清空 {n} 条', pausedTag:'采集中断·已暂停',
+    setLimit:'历史上限', setLimitHint:'超出后自动清理最旧记录（置顶除外）', setAuto:'开机自动启动', setAutoHint:'登录 Windows 后在后台静默运行', shortcut:'呼出快捷键', about:'关于', save:'保存', saved:'设置已保存', setHotkey:'呼出热键', setHotkeyHint:'如 Alt+V / Ctrl+Alt+V，保存后生效；若被占用会提示失败', setSensitive:'敏感词过滤', setSensitivePh:'token, password, 密码', setSensitiveHint:'开关打开且复制内容包含这些词时不记录（逗号分隔）', setPause:'暂停采集', setPauseHint:'开启后照常复制粘贴，但不记录任何新内容', setImage:'图片采集', setImageHint:'关闭后截图/图片复制只进真实剪贴板，不进历史（图片无法做敏感词过滤）', setExclude:'应用排除', setExcludePh:'keepass, msedge', setExcludeHint:'这些应用里复制的内容一律不记录（进程名，逗号分隔）', setResume:'暂停自动恢复', setResumeHint:'暂停后自动恢复的分钟数，0 表示手动恢复', setFont:'字体大小', setFontHint:'四档界面缩放：100% / 110% / 125% / 150%，立即生效并记住', clearAll:'清空历史', clearAllHint:'删除所有条目及其图片与附件文件，不可恢复', clearBtn:'清空全部历史', clearConfirm:'再点一次确认！', cleared:'已清空 {n} 条', pausedTag:'采集中断·已暂停',
     focusLost:'已复制到剪贴板，但无法聚焦原窗口，请手动 Ctrl+V', pasteFail:'粘贴失败，内容仍在剪贴板', dayToday:'今天', dayYesterday:'昨天', dayEarlier:'更早',
     demoPasted:'在线演示：实际使用时这里会粘贴到原窗口',
     pin:'置顶', del:'删除', clear:'清除',
@@ -24,11 +24,82 @@ export const messages = {
     statTotal:'Total', statText:'Text', statImage:'Images', statLink:'Links', statFile:'Files',
     statPinned:'Pinned', statToday:'Today', statPastes:'Pastes', statDaily:'Last 7 days',
     statTop:'Top 5 pasted', times:'×',
-    setLimit:'History limit', setLimitHint:'Oldest unpinned items are cleaned up beyond the limit', setAuto:'Launch at startup', setAutoHint:'Runs quietly in the background after sign-in', shortcut:'Summon shortcut', about:'About', save:'Save', saved:'Settings saved', setHotkey:'Summon hotkey', setHotkeyHint:'e.g. Alt+V / Ctrl+Alt+V — applied on save; warns if taken', setSensitive:'Sensitive filter', setSensitivePh:'token, password, secret', setSensitiveHint:'With the switch on, copies containing these words are never recorded (comma separated)', setPause:'Pause capture', setPauseHint:'Copy and paste as usual — nothing new is recorded while on', setImage:'Image capture', setImageHint:'When off, screenshots and image copies stay on the real clipboard but never enter history (images cannot pass a keyword filter)', setExclude:'Excluded apps', setExcludePh:'keepass, msedge', setExcludeHint:'Copies made in these apps are never recorded (process names, comma separated)', setResume:'Pause auto-resume', setResumeHint:'Minutes after which a pause lifts itself; 0 means resume manually', clearAll:'Clear history', clearAllHint:'Deletes every entry with its images and side files. Cannot be undone.', clearBtn:'Clear all history', clearConfirm:'Click again to confirm!', cleared:'Cleared {n} item(s)', pausedTag:'Capture paused',
+    setLimit:'History limit', setLimitHint:'Oldest unpinned items are cleaned up beyond the limit', setAuto:'Launch at startup', setAutoHint:'Runs quietly in the background after sign-in', shortcut:'Summon shortcut', about:'About', save:'Save', saved:'Settings saved', setHotkey:'Summon hotkey', setHotkeyHint:'e.g. Alt+V / Ctrl+Alt+V — applied on save; warns if taken', setSensitive:'Sensitive filter', setSensitivePh:'token, password, secret', setSensitiveHint:'With the switch on, copies containing these words are never recorded (comma separated)', setPause:'Pause capture', setPauseHint:'Copy and paste as usual — nothing new is recorded while on', setImage:'Image capture', setImageHint:'When off, screenshots and image copies stay on the real clipboard but never enter history (images cannot pass a keyword filter)', setExclude:'Excluded apps', setExcludePh:'keepass, msedge', setExcludeHint:'Copies made in these apps are never recorded (process names, comma separated)', setResume:'Pause auto-resume', setResumeHint:'Minutes after which a pause lifts itself; 0 means resume manually', setFont:'Font size', setFontHint:'Four UI scaling steps: 100% / 110% / 125% / 150% — applies instantly and is remembered', clearAll:'Clear history', clearAllHint:'Deletes every entry with its images and side files. Cannot be undone.', clearBtn:'Clear all history', clearConfirm:'Click again to confirm!', cleared:'Cleared {n} item(s)', pausedTag:'Capture paused',
     focusLost:'Copied to clipboard, but could not focus the previous window — press Ctrl+V manually', pasteFail:'Paste failed, content stays on clipboard', dayToday:'Today', dayYesterday:'Yesterday', dayEarlier:'Earlier',
     demoPasted:'Demo: the real app pastes this into your previous window',
     pin:'Pin', del:'Delete', clear:'Clear',
   },
+  ja: {
+    all:'すべて', text:'テキスト', image:'画像', pinned:'固定', link:'リンク', file:'ファイル',
+    search:'クリップボードを検索…', empty:'まだ何もありません', emptyHint:'何かコピーすると（テキスト/画像/ファイル）ここに表示されます', expired:'画像の期限切れ',
+    noMatch:'一致する項目がありません', noMatchHint:'キーワードを短くするか、Esc で検索をクリアしてください',
+    copyHint:'クリックで貼り付け · ↑↓ 選択 · Enter 貼り付け · Del 削除', theme:'テーマ', lang:'言語',
+    statsTitle:'統計', settingsTitle:'設定',
+    statTotal:'合計', statText:'テキスト', statImage:'画像', statLink:'リンク', statFile:'ファイル',
+    statPinned:'固定', statToday:'今日', statPastes:'貼り付け回数', statDaily:'直近 7 日間',
+    statTop:'よく貼り付け Top 5', times:'回',
+    setLimit:'履歴上限', setLimitHint:'上限を超えると最古の未固定項目から削除されます', setAuto:'スタートアップ起動', setAutoHint:'サインイン後にバックグラウンドで起動', shortcut:'呼び出しショートカット', about:'バージョン', save:'保存', saved:'設定を保存しました', setHotkey:'呼び出しホットキー', setHotkeyHint:'例: Alt+V / Ctrl+Alt+V — 保存で適用、競合時は警告', setSensitive:'機密語フィルター', setSensitivePh:'token, password, 秘密', setSensitiveHint:'スイッチ ON のとき、これらの語を含むコピーは記録されません（カンマ区切り）', setPause:'取得を一時停止', setPauseHint:'ON の間もコピーは通常どおり。新しく記録されるだけがありません', setImage:'画像の取得', setImageHint:'OFF にするとスクリーンショット等の画像コピーは履歴に入りません（画像は語フィルター不可のため）', setExclude:'除外アプリ', setExcludePh:'keepass, msedge', setExcludeHint:'これらのアプリでのコピーは記録されません（プロセス名、カンマ区切り）', setResume:'一時停止の自動解除', setResumeHint:'指定分後に一時停止を自動解除。0 は手動', setFont:'フォントサイズ', setFontHint:'4 段階の UI 拡大：100% / 110% / 125% / 150%。即時反映・記憶されます', clearAll:'履歴を消去', clearAllHint:'すべての項目と画像・添付ファイルを削除。元に戻せません', clearBtn:'すべての履歴を消去', clearConfirm:'もう一度クリックで確定！', cleared:'{n} 件消去しました', pausedTag:'取得停止中',
+    focusLost:'クリップボードにコピーしましたが、元のウィンドウにフォーカスできません。手動で Ctrl+V を押してください', pasteFail:'貼り付け失敗。内容はクリップボードに残っています', dayToday:'今日', dayYesterday:'昨日', dayEarlier:'それ以前',
+    demoPasted:'デモ: 実際のアプリでは直前のウィンドウに貼り付きます',
+    pin:'固定', del:'削除', clear:'クリア',
+  },
+  ko: {
+    all:'전체', text:'텍스트', image:'이미지', pinned:'고정', link:'링크', file:'파일',
+    search:'클립보드 검색…', empty:'아직 없습니다', emptyHint:'무엇이든 복사하면(텍스트/이미지/파일) 여기에 표시됩니다', expired:'만료됨',
+    noMatch:'일치하는 항목이 없습니다', noMatchHint:'검색어를 줄이거나 Esc로 지우세요',
+    copyHint:'클릭하여 붙여넣기 · ↑↓ 선택 · Enter 붙여넣기 · Del 삭제', theme:'테마', lang:'언어',
+    statsTitle:'통계', settingsTitle:'설정',
+    statTotal:'전체', statText:'텍스트', statImage:'이미지', statLink:'링크', statFile:'파일',
+    statPinned:'고정', statToday:'오늘', statPastes:'붙여넣기 횟수', statDaily:'최근 7일',
+    statTop:'자주 붙여넣은 Top 5', times:'회',
+    setLimit:'기록 상한', setLimitHint:'한도 초과 시 가장 오래된 비고정 항목부터 정리됩니다', setAuto:'시작 시 실행', setAutoHint:'로그인 후 백그라운드에서 조용히 실행', shortcut:'호출 단축키', about:'정보', save:'저장', saved:'설정이 저장되었습니다', setHotkey:'호출 핫키', setHotkeyHint:'예: Alt+V / Ctrl+Alt+V — 저장 시 적용, 충돌 시 경고', setSensitive:'민감 단어 필터', setSensitivePh:'token, password, 비밀', setSensitiveHint:'스위치가 켜져 있을 때 이 단어가 포함된 복사본은 기록되지 않습니다(쉼표 구분)', setPause:'캡처 일시중지', setPauseHint:'켜져 있는 동안 복사는 평소대로, 새 기록만 없습니다', setImage:'이미지 캡처', setImageHint:'끄면 스크린샷 등 이미지 복사본이 기록에 들어가지 않습니다(이미지는 단어 필터 불가)', setExclude:'제외 앱', setExcludePh:'keepass, msedge', setExcludeHint:'이 앱에서 복사한 내용은 기록되지 않습니다(프로세스명, 쉼표 구분)', setResume:'일시중지 자동 해제', setResumeHint:'지정 분 후 일시중지가 자동 해제됩니다. 0은 수동', setFont:'글자 크기', setFontHint:'4단계 UI 배율: 100% / 110% / 125% / 150% — 즉시 적용되고 기억됩니다', clearAll:'기록 비우기', clearAllHint:'모든 항목과 이미지·첨부 파일을 삭제합니다. 되돌릴 수 없습니다', clearBtn:'전체 기록 지우기', clearConfirm:'한 번 더 클릭해 확인!', cleared:'{n}개 항목을 지웠습니다', pausedTag:'캡처 일시중지',
+    focusLost:'클립보드에 복사했지만 이전 창에 포커스를 줄 수 없습니다. 직접 Ctrl+V를 누르세요', pasteFail:'붙여넣기 실패, 내용은 클립보드에 남아 있습니다', dayToday:'오늘', dayYesterday:'어제', dayEarlier:'이전',
+    demoPasted:'데모: 실제 앱에서는 이전 창으로 붙여넣어집니다',
+    pin:'고정', del:'삭제', clear:'지우기',
+  },
+  es: {
+    all:'Todo', text:'Texto', image:'Imagen', pinned:'Fijado', link:'Enlaces', file:'Archivos',
+    search:'Buscar en el portapapeles…', empty:'Aún no hay nada', emptyHint:'Copia algo (texto / imagen / archivos) y aparecerá aquí', expired:'Expirado',
+    noMatch:'Sin resultados', noMatchHint:'Prueba una palabra más corta, o pulsa Esc para limpiar',
+    copyHint:'Clic para pegar · ↑↓ seleccionar · Enter pegar · Del eliminar', theme:'Tema', lang:'Idioma',
+    statsTitle:'Estadísticas', settingsTitle:'Ajustes',
+    statTotal:'Total', statText:'Texto', statImage:'Imágenes', statLink:'Enlaces', statFile:'Archivos',
+    statPinned:'Fijados', statToday:'Hoy', statPastes:'Pegados', statDaily:'Últimos 7 días',
+    statTop:'Top 5 más pegados', times:'×',
+    setLimit:'Límite de historial', setLimitHint:'Los elementos más antiguos no fijados se limpian al superar el límite', setAuto:'Iniciar con Windows', setAutoHint:'Se ejecuta en segundo plano tras iniciar sesión', shortcut:'Atajo de invocación', about:'Acerca de', save:'Guardar', saved:'Ajustes guardados', setHotkey:'Atajo global', setHotkeyHint:'p. ej. Alt+V / Ctrl+Alt+V — se aplica al guardar; avisa si está ocupado', setSensitive:'Filtro de palabras sensibles', setSensitivePh:'token, password, secreto', setSensitiveHint:'Con el interruptor activo, las copias que contengan estas palabras nunca se registran (separadas por comas)', setPause:'Pausar captura', setPauseHint:'Copia y pega con normalidad: nada nuevo se registra mientras esté activo', setImage:'Captura de imágenes', setImageHint:'Al desactivarlo, capturas e imágenes copiadas no entran al historial (las imágenes no admiten filtro de palabras)', setExclude:'Apps excluidas', setExcludePh:'keepass, msedge', setExcludeHint:'Lo copiado en estas apps nunca se registra (nombres de proceso, separados por comas)', setResume:'Reanudación automática', setResumeHint:'Minutos tras los cuales la pausa se levanta sola; 0 = manual', setFont:'Tamaño de letra', setFontHint:'Cuatro niveles de escala: 100% / 110% / 125% / 150% — se aplica al instante y se recuerda', clearAll:'Borrar historial', clearAllHint:'Elimina todas las entradas con sus imágenes y archivos adjuntos. No se puede deshacer.', clearBtn:'Borrar todo el historial', clearConfirm:'¡Pulsa otra vez para confirmar!', cleared:'Se borraron {n} elementos', pausedTag:'Captura en pausa',
+    focusLost:'Copiado al portapapeles, pero no se pudo enfocar la ventana anterior: pulsa Ctrl+V manualmente', pasteFail:'Error al pegar; el contenido sigue en el portapapeles', dayToday:'Hoy', dayYesterday:'Ayer', dayEarlier:'Antes',
+    demoPasted:'Demo: la app real pega esto en tu ventana anterior',
+    pin:'Fijar', del:'Eliminar', clear:'Limpiar',
+  },
+  fr: {
+    all:'Tout', text:'Texte', image:'Image', pinned:'Épinglé', link:'Liens', file:'Fichiers',
+    search:'Rechercher dans le presse-papiers…', empty:'Rien pour le moment', emptyHint:'Copiez quelque chose (texte / image / fichiers) et cela apparaîtra ici', expired:'Expiré',
+    noMatch:'Aucun résultat', noMatchHint:'Essayez un mot plus court, ou Échap pour effacer',
+    copyHint:'Clic pour coller · ↑↓ sélection · Entrée coller · Suppr supprimer', theme:'Thème', lang:'Langue',
+    statsTitle:'Statistiques', settingsTitle:'Réglages',
+    statTotal:'Total', statText:'Texte', statImage:'Images', statLink:'Liens', statFile:'Fichiers',
+    statPinned:'Épinglés', statToday:'Aujourd’hui', statPastes:'Collages', statDaily:'7 derniers jours',
+    statTop:'Top 5 des collages', times:'×',
+    setLimit:'Limite d’historique', setLimitHint:'Les éléments les plus anciens non épinglés sont nettoyés au-delà de la limite', setAuto:'Lancer au démarrage', setAutoHint:'Tourne en arrière-plan après la connexion', shortcut:'Raccourci d’appel', about:'À propos', save:'Enregistrer', saved:'Réglages enregistrés', setHotkey:'Raccourci global', setHotkeyHint:'ex. Alt+V / Ctrl+Alt+V — appliqué à l’enregistrement ; avertit si occupé', setSensitive:'Filtre de mots sensibles', setSensitivePh:'token, password, secret', setSensitiveHint:'Interrupteur activé, les copies contenant ces mots ne sont jamais enregistrées (séparés par des virgules)', setPause:'Suspendre la capture', setPauseHint:'Copiez-collez normalement : rien de nouveau n’est enregistré tant que c’est actif', setImage:'Capture d’images', setImageHint:'Désactivé, les captures d’écran et images copiées n’entrent pas dans l’historique (pas de filtre de mots possible pour les images)', setExclude:'Apps exclues', setExcludePh:'keepass, msedge', setExcludeHint:'Ce qui est copié dans ces applications n’est jamais enregistré (noms de processus, séparés par des virgules)', setResume:'Reprise automatique', setResumeHint:'Minutes après lesquelles la pause se lève d’elle-même ; 0 = manuel', setFont:'Taille de police', setFontHint:'Quatre niveaux d’échelle : 100% / 110% / 125% / 150% — effet immédiat et mémorisé', clearAll:'Vider l’historique', clearAllHint:'Supprime toutes les entrées avec images et fichiers joints. Irréversible.', clearBtn:'Vider tout l’historique', clearConfirm:'Cliquez encore pour confirmer !', cleared:'{n} éléments supprimés', pausedTag:'Capture suspendue',
+    focusLost:'Copié dans le presse-papiers, mais impossible de refocaliser la fenêtre précédente — faites Ctrl+V manuellement', pasteFail:'Échec du collage ; le contenu reste dans le presse-papiers', dayToday:'Aujourd’hui', dayYesterday:'Hier', dayEarlier:'Avant',
+    demoPasted:'Démo : la vraie app colle cela dans votre fenêtre précédente',
+    pin:'Épingler', del:'Supprimer', clear:'Effacer',
+  },
+  de: {
+    all:'Alle', text:'Text', image:'Bild', pinned:'Angeheftet', link:'Links', file:'Dateien',
+    search:'Zwischenablage durchsuchen…', empty:'Noch nichts hier', emptyHint:'Etwas kopieren (Text / Bild / Dateien) und es erscheint hier', expired:'Abgelaufen',
+    noMatch:'Keine Treffer', noMatchHint:'Kürzeres Stichwort versuchen oder Esc zum Leeren',
+    copyHint:'Klicken zum Einfügen · ↑↓ wählen · Enter einfügen · Entf löschen', theme:'Design', lang:'Sprache',
+    statsTitle:'Statistik', settingsTitle:'Einstellungen',
+    statTotal:'Gesamt', statText:'Text', statImage:'Bilder', statLink:'Links', statFile:'Dateien',
+    statPinned:'Angeheftet', statToday:'Heute', statPastes:'Einfügungen', statDaily:'Letzte 7 Tage',
+    statTop:'Top 5 der Einfügungen', times:'×',
+    setLimit:'Verlaufslimit', setLimitHint:'Älteste nicht angeheftete Einträge werden über dem Limit aufgeräumt', setAuto:'Autostart', setAutoHint:'Läuft nach der Anmeldung im Hintergrund', shortcut:'Aufruf-Hotkey', about:'Über', save:'Speichern', saved:'Einstellungen gespeichert', setHotkey:'Aufruf-Hotkey', setHotkeyHint:'z. B. Alt+V / Ctrl+Alt+V — wird beim Speichern angewendet; warnt bei Konflikt', setSensitive:'Filter für sensible Wörter', setSensitivePh:'token, password, geheim', setSensitiveHint:'Bei eingeschaltetem Schalter werden Kopien mit diesen Wörtern nie aufgezeichnet (kommagetrennt)', setPause:'Aufnahme pausieren', setPauseHint:'Kopieren bleibt normal — nur nichts Neues wird aufgezeichnet', setImage:'Bilder aufnehmen', setImageHint:'Aus: Screenshots und kopierte Bilder gelangen nicht in den Verlauf (Bilder können nicht wortgefiltert werden)', setExclude:'Ausgeschlossene Apps', setExcludePh:'keepass, msedge', setExcludeHint:'Kopien aus diesen Apps werden nie aufgezeichnet (Prozessnamen, kommagetrennt)', setResume:'Auto-Fortsetzung', setResumeHint:'Minuten, nach denen die Pause von selbst endet; 0 = manuell', setFont:'Schriftgröße', setFontHint:'Vier Skalierungsstufen: 100% / 110% / 125% / 150% — sofort wirksam und gemerkt', clearAll:'Verlauf leeren', clearAllHint:'Löscht alle Einträge samt Bildern und Anhängen. Nicht widerrufbar.', clearBtn:'Gesamten Verlauf leeren', clearConfirm:'Nochmal klicken zum Bestätigen!', cleared:'{n} Einträge gelöscht', pausedTag:'Aufnahme pausiert',
+    focusLost:'In die Zwischenablage kopiert, aber das vorherige Fenster konnte nicht fokussiert werden — bitte manuell Strg+V drücken', pasteFail:'Einfügen fehlgeschlagen; der Inhalt bleibt in der Zwischenablage', dayToday:'Heute', dayYesterday:'Gestern', dayEarlier:'Früher',
+    demoPasted:'Demo: Die echte App fügt dies in dein vorheriges Fenster ein',
+    pin:'Anheften', del:'Löschen', clear:'Leeren',
+  },
+
 }
 
 // Pure lookup: unknown keys fall through to the key itself (same as before).
@@ -36,6 +107,10 @@ export function translate(lang, key) {
   return (messages[lang] ?? messages.zh)[key] ?? key
 }
 
+const LANG_ATTR = { zh: 'zh-CN', en: 'en', ja: 'ja', ko: 'ko', es: 'es', fr: 'fr', de: 'de' }
+
 export function documentLangAttr(lang) {
-  return lang === 'zh' ? 'zh-CN' : 'en'
+  return LANG_ATTR[lang] ?? 'en'
 }
+
+export const LANGS = Object.keys(messages)

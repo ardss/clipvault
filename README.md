@@ -4,7 +4,7 @@
 [![CI](https://img.shields.io/github/actions/workflow/status/ardss/clipvault/ci.yml?label=CI)](../../actions/workflows/ci.yml)
 [![License](https://img.shields.io/github/license/ardss/clipvault)](LICENSE)
 
-**English** | [简体中文](README.zh-CN.md)
+**English** | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [Español](README.es.md) | [Français](README.fr.md) | [Deutsch](README.de.md)
 
 The enhanced Win+V — a clean, minimal Windows clipboard history manager.
 
@@ -19,7 +19,7 @@ Press `Alt+V` to summon the panel → search → click to paste back where you c
 - **Paste back**: the panel never steals focus from your work; click an entry and it lands where you were
 - **Hover preview**: truncated text and image thumbnails expand in a side preview (scrollable, selectable, partially copyable)
 - **Keyboard-first**: `↑↓` navigate, `Enter` paste, `Del` delete, `Esc` close
-- **Dark & light theme, Chinese & English UI**: switch inside the panel, remembered
+- **Dark & light theme, 7-language UI** (en/zh/ja/ko/es/fr/de): switch inside the panel, remembered
 - **Stats**: totals / categories / 7-day trend / top 5 pasted
 - **Optional autostart**, tray icon, draggable panel height that sticks
 - **Pause capture** (tray one-click, optional auto-resume) and **wipe all history** with one click each
