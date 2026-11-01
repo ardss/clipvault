@@ -8,6 +8,7 @@ import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { LogicalPosition, LogicalSize } from '@tauri-apps/api/dpi'
 import { shouldFetchFullContent } from './modules/openPolicy.js'
 import { createI18nStore, createThemeStore, sensitiveTextComputed, excludedAppsComputed } from './modules/settingsStore.js'
+import { LANGS } from './modules/i18n.js'
 import { reduce as reduceClearArmed, INITIAL_STATE, ARM_TIMEOUT_MS } from './modules/confirmArmed.js'
 
 const isZoomWin =
@@ -24,6 +25,9 @@ window.addEventListener('unhandledrejection', () => {
 })
 
 const { lang, t, toggleLang, langLabel } = createI18nStore()
+function setLang(l) {
+  if (LANGS.includes(l)) { lang.value = l }
+}
 
 const { theme, toggleTheme } = createThemeStore()
 
@@ -35,6 +39,7 @@ const clips = ref([])
 const showStats = ref(false)
 const stats = ref(null)
 const showSettings = ref(false)
+const showClearConfirm = ref(false)
 const settings = ref({ history_limit: 1000, panel_height: 540, autostart: false, image_capture: true, excluded_apps: [], auto_resume_minutes: 0 })
 
 // Font size: 4 steps (100% / 110% / 125% / 150%) applied as CSS zoom on the
@@ -151,14 +156,15 @@ function disarmClear(event) {
 // disarm timer alone can be throttled while a hidden webview never gets
 // timers serviced
 function onBlurDisarm() { disarmClear('blur') }
-async function onClearAll() {
-  clearState.value = reduceClearArmed(clearState.value, 'click', Date.now())
-  clearTimeout(clearTimer)
-  if (clearState.value.armed) {
-    clearTimer = setTimeout(() => { disarmClear('expire') }, ARM_TIMEOUT_MS)
-    return
-  }
-  if (!clearState.value.fired) return
+// wipe is behind a real modal: a double-click on the button can no longer
+// destroy history (the armed-click state machine stays for other callers but
+// no longer gates deletion)
+function onClearAll() {
+  disarmClear('open-modal')
+  showClearConfirm.value = true
+}
+async function confirmClearAll() {
+  showClearConfirm.value = false
   try {
     const n = await invoke('clear_history')
     ++zoomRequestId
@@ -167,6 +173,9 @@ async function onClearAll() {
     showToast(t('cleared').replace('{n}', String(n)))
     refresh()
   } catch (e) { console.error(e) }
+}
+function cancelClearAll() {
+  showClearConfirm.value = false
 }
 // keywords live in settings as a string array; the UI edits one comma-separated string
 const sensitiveText = sensitiveTextComputed(settings)
@@ -313,6 +322,7 @@ function onKey(e) {
   // typing in search: only Delete is dangerous (deletes the selected clip);
   // arrows/Enter stay live for list navigation
   if (e.key === 'Escape') {
+    if (showClearConfirm.value) { cancelClearAll(); return }
     if (showStats.value || showSettings.value) { disarmClear('escape'); closeOverlays(); return }
     if (query.value) { clearSearch(); return }
     invoke('hide_panel_cmd')
@@ -446,7 +456,11 @@ onBeforeUnmount(() => {
         <svg v-if="theme==='dark'" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
         <svg v-else viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
       </button>
-      <button class="icon-btn lang-btn" :title="t('lang')" @click="toggleLang">{{ langLabel() }}</button>
+      <select class="icon-btn lang-btn" :title="t('lang')" :value="lang" @change="setLang($event.target.value)"
+        :aria-label="t('lang')">
+  <option value="zh">中文</option><option value="en">EN</option><option value="ja">日本語</option>
+  <option value="ko">한국어</option><option value="es">ES</option><option value="fr">FR</option><option value="de">DE</option>
+</select>
     </div>
 
     <div class="search-row" v-if="!showStats && !showSettings">
@@ -584,7 +598,7 @@ onBeforeUnmount(() => {
         <div class="set-card">
           <div class="set-head">
             <span class="set-name">{{ t('clearAll') }}</span>
-            <button class="clear-btn" :class="{ armed: clearArmed }" @click="onClearAll">{{ clearArmed ? t('clearConfirm') : t('clearBtn') }}</button>
+            <button class="clear-btn" @click="onClearAll">{{ t('clearBtn') }}</button>
           </div>
           <div class="set-hint">{{ t('clearAllHint') }}</div>
         </div>
@@ -628,9 +642,21 @@ onBeforeUnmount(() => {
       <span></span>
     </div>
 
+  <transition name="fade">
+    <div v-if="showClearConfirm" class="modal-backdrop" @click.self="cancelClearAll">
+      <div class="modal" role="alertdialog" :aria-label="t('clearAll')">
+        <div class="modal-title">{{ t('clearTitle') }}</div>
+        <div class="modal-body">{{ t('clearAllHint') }}</div>
+        <div class="modal-actions">
+          <button class="modal-btn" @click="cancelClearAll">{{ t('modalCancel') }}</button>
+          <button class="modal-btn modal-danger" @click="confirmClearAll">{{ t('modalDelete') }}</button>
+          </div>
+        </div>
+      </div>
+    </transition>
     <transition name="fade">
       <div v-if="toast" class="toast" role="status">{{ toast }}</div>
-    </transition>
+  </transition>
   </div>
 </template>
 
@@ -642,7 +668,16 @@ onBeforeUnmount(() => {
 .hint { flex: 1; min-width: 40px; color: var(--fg-dim); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .icon-btn { border: 0; background: transparent; color: var(--fg-dim); width: 26px; height: 26px; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
 .icon-btn:hover { background: var(--bg-hover); color: var(--fg); }
-.lang-btn { width: auto; padding: 0 7px; font-size: 11px; }
+.lang-btn { width: auto; padding: 0 4px; font-size: 11px; cursor: pointer; }
+.modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; z-index: 60; }
+.modal { background: var(--bg); color: var(--fg); border: 1.5px solid var(--border); border-radius: 10px; padding: 16px 18px; width: min(320px, 86%); box-shadow: 0 12px 40px rgba(0,0,0,.35); }
+.modal-title { font-weight: 700; font-size: 14px; margin-bottom: 8px; }
+.modal-body { font-size: 12px; color: var(--fg-dim); line-height: 1.6; margin-bottom: 14px; }
+.modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.modal-btn { border: 1.5px solid var(--border); background: var(--bg-2); color: var(--fg); border-radius: 6px; padding: 5px 12px; font-size: 12px; cursor: pointer; }
+.modal-btn:hover { background: var(--bg-hover); }
+.modal-danger { border-color: #c0392b; background: #c0392b; color: #fff; }
+.modal-danger:hover { background: #a93226; }
 .search-row { padding: 4px 10px; position: relative; }
 .search-clear { position: absolute; right: 18px; top: 50%; transform: translateY(-50%); border: 0; background: transparent; color: var(--fg-dim); width: 22px; height: 22px; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
 .search-clear:hover { background: var(--bg-hover); color: var(--fg); }
