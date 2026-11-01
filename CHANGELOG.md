@@ -5,12 +5,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.10] - 2026-11-01
+## [0.1.11] - 2026-11-01
 
 ### Added
 
 - **敏感词过滤总开关**：设置面板可一键关停关键词过滤。默认开启（老配置里已有关键词的用户升级后行为不变；关键词列表为空时本就不过滤）。
-- README 双语补充隐私拦截功能说明；发布流程改为 draft 双机装机 + 用户验收通过后才 publish。
+
+- **界面 7 语言**：在中文/英文基础上新增日语、韩语、西班牙语、法语、德语，托盘语言按钮循环切换，i18n 键完整性测试覆盖全部语言。
+- **字体大小四档滑块**：设置面板新增 100% / 110% / 125% / 150% 四档界面缩放，立即生效并记忆。
+- **README 多语言**：新增日语/韩语/西班牙语/法语/德语版本，与英文/中文版同步维护。
+- 含 v0.1.10 未发布内容：敏感词过滤总开关。
 
 ## [0.1.9] - 2026-11-01
 

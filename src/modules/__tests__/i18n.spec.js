@@ -4,14 +4,15 @@ import { messages, translate, documentLangAttr } from '../i18n.js'
 const langs = Object.keys(messages)
 
 describe('i18n key completeness', () => {
-  it('has exactly zh and en tables', () => {
-    expect(langs.sort()).toEqual(['en', 'zh'])
+  it('has the shipped language set (zh/en/ja/ko/es/fr/de)', () => {
+    expect(langs.sort()).toEqual(['de', 'en', 'es', 'fr', 'ja', 'ko', 'zh'])
   })
 
-  it('zh and en expose the exact same key set', () => {
+  it('every language exposes the exact same key set as zh', () => {
     const zhKeys = Object.keys(messages.zh).sort()
-    const enKeys = Object.keys(messages.en).sort()
-    expect(enKeys).toEqual(zhKeys)
+    for (const lang of langs) {
+      expect(Object.keys(messages[lang]).sort(), lang).toEqual(zhKeys)
+    }
   })
 
   it('every key is a non-empty string in every language', () => {

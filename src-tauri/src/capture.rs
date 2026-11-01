@@ -116,11 +116,15 @@ pub(crate) fn handle_clipboard_change(app: &AppHandle) {
     let settings_state = app.state::<SettingsState>();
     let (limit, keywords, image_capture) = {
         let s = settings_state.0.lock().unwrap_or_else(|p| p.into_inner());
-        (
-            s.history_limit,
-            s.sensitive_keywords.clone(),
-            s.image_capture,
-        )
+        // the kill-switch gates every keyword branch at once: an empty
+        // keyword list is already a no-op, so only the explicit "off" changes
+        // behavior here
+        let keywords = if s.sensitive_filter_enabled {
+            s.sensitive_keywords.clone()
+        } else {
+            Vec::new()
+        };
+        (s.history_limit, keywords, s.image_capture)
     };
     // ---- snapshot the clipboard OUTSIDE the db lock ----
     // a read can block for hundreds of ms (open retries, a 20MB memcpy) and

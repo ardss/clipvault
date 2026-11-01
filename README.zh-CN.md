@@ -4,7 +4,7 @@
 [![CI](https://img.shields.io/github/actions/workflow/status/ardss/clipvault/ci.yml?label=CI)](../../actions/workflows/ci.yml)
 [![License](https://img.shields.io/github/license/ardss/clipvault)](LICENSE)
 
-[English](README.md) | **简体中文**
+**简体中文** | [English](README.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [Español](README.es.md) | [Français](README.fr.md) | [Deutsch](README.de.md)
 
 **Win+V 官方增强版——好看、清爽、极简的 Windows 剪贴板历史管理器。**
 
@@ -19,7 +19,7 @@
 - **粘贴回原窗口**：呼出面板不丢光标，点条目内容落回原处
 - **悬停预览**：截断的长文本 / 图片缩略图，悬停在外侧预览窗查看完整内容（可滚动、可划选复制部分文字）
 - **键盘操作**：`↑↓` 选择、`Enter` 粘贴、`Del` 删除、`Esc` 关闭
-- **深浅色主题 + 中英文界面**：面板内一键切换并记住
+- **深浅色主题 + 7 语言界面**（中/英/日/韩/西/法/德）：面板内一键切换并记住
 - **统计面板**：总量 / 分类 / 近 7 天趋势 / 最常粘贴 Top 5
 - **开机自启**（可选）、托盘常驻、面板高度拖拽调整并记住
 - **托盘一键暂停采集**（可选自动恢复）/ 一键清空全部历史

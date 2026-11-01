@@ -23,7 +23,7 @@ window.addEventListener('unhandledrejection', () => {
   invoke('report_error', { msg: 'unhandled-rejection' }).catch(() => {})
 })
 
-const { lang, t, toggleLang } = createI18nStore()
+const { lang, t, toggleLang, langLabel } = createI18nStore()
 
 const { theme, toggleTheme } = createThemeStore()
 
@@ -36,6 +36,16 @@ const showStats = ref(false)
 const stats = ref(null)
 const showSettings = ref(false)
 const settings = ref({ history_limit: 1000, panel_height: 540, autostart: false, image_capture: true, excluded_apps: [], auto_resume_minutes: 0 })
+
+// Font size: 4 steps (100% / 110% / 125% / 150%) applied as CSS zoom on the
+// panel root. Persisted as a UI pref (localStorage) like language/theme.
+const FONT_STEPS = [1.0, 1.1, 1.25, 1.5]
+const fontStep = ref(Math.min(3, Math.max(0, parseInt(localStorage.getItem('cv-fontstep') || '0', 10) || 0)))
+const fontZoom = computed(() => FONT_STEPS[fontStep.value])
+function setFontStep(v) {
+  fontStep.value = v
+  localStorage.setItem('cv-fontstep', String(v))
+}
 const toast = ref('')
 let toastTimer = null
 let searchTimer = null
@@ -436,7 +446,7 @@ onBeforeUnmount(() => {
         <svg v-if="theme==='dark'" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
         <svg v-else viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
       </button>
-      <button class="icon-btn lang-btn" :title="t('lang')" @click="toggleLang">{{ lang === 'zh' ? 'EN' : '中' }}</button>
+      <button class="icon-btn lang-btn" :title="t('lang')" @click="toggleLang">{{ langLabel() }}</button>
     </div>
 
     <div class="search-row" v-if="!showStats && !showSettings">
@@ -589,6 +599,16 @@ onBeforeUnmount(() => {
         </div>
         <div class="set-card">
           <div class="set-head">
+            <span class="set-name">{{ t('setFont') }}</span>
+            <span class="set-value">{{ ['100%', '110%', '125%', '150%'][fontStep] }}</span>
+          </div>
+          <input class="set-slider" type="range" min="0" max="3" step="1"
+                 :value="fontStep" @input="setFontStep(parseInt($event.target.value, 10))"
+                 :aria-label="t('setFont')" />
+          <div class="set-hint">{{ t('setFontHint') }}</div>
+        </div>
+        <div class="set-card">
+          <div class="set-head">
             <span class="set-name">{{ t('setSensitive') }}</span>
             <label class="switch">
               <input type="checkbox" v-model="settings.sensitive_filter_enabled" :aria-label="t('setSensitive')" />
@@ -599,7 +619,7 @@ onBeforeUnmount(() => {
                  spellcheck="false" :aria-label="t('setSensitive')" />
           <div class="set-hint">{{ t('setSensitiveHint') }}</div>
         </div>
-        <div class="about">{{ t('about') }} ClipVault v0.1.10 · MIT</div>
+        <div class="about">{{ t('about') }} ClipVault v0.1.11 · MIT</div>
       </div>
     </div>
 
