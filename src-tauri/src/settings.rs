@@ -106,10 +106,7 @@ pub(crate) fn set_paused<R: tauri::Runtime>(app: AppHandle<R>, paused: bool) {
     } else {
         None
     };
-    cvlog!(
-        "[cv] capture {}",
-        if paused { "paused" } else { "resumed" }
-    );
+    cvlog!("[cv] capture {}", if paused { "paused" } else { "resumed" });
 }
 
 fn normalize(mut s: Settings) -> Settings {
@@ -400,11 +397,19 @@ mod settings_tests {
         assert_eq!(s.auto_resume_minutes, 0, "pause is manual by default");
 
         let n = normalize(Settings {
-            excluded_apps: vec!["  KeePass.EXE ".into(), "msedge".into(), "keepass.exe".into(), "  ".into()],
+            excluded_apps: vec![
+                "  KeePass.EXE ".into(),
+                "msedge".into(),
+                "keepass.exe".into(),
+                "  ".into(),
+            ],
             auto_resume_minutes: 9999,
             ..Settings::default()
         });
-        assert_eq!(n.excluded_apps, vec!["keepass".to_string(), "msedge".to_string()]);
+        assert_eq!(
+            n.excluded_apps,
+            vec!["keepass".to_string(), "msedge".to_string()]
+        );
         assert_eq!(n.auto_resume_minutes, 240, "clamp to 4 hours");
     }
 

@@ -680,7 +680,7 @@ pub fn ipc_test_app() -> tauri::App<tauri::test::MockRuntime> {
     db::setup_schema(&conn).expect("schema setup on in-memory db");
     app.manage(db::Db(Mutex::new(conn)));
     app.manage(settings::PauseUntil(std::sync::Mutex::new(None)));
-            app.manage(SettingsState(
+    app.manage(SettingsState(
         Mutex::new(settings::Settings::default()),
         // started "frozen" like the corrupt-file fallback: tests observe the
         // unfreeze via set_settings/save_panel_height
