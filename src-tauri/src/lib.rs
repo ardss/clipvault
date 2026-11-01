@@ -602,14 +602,11 @@ mod image_reconcile_tests {
 fn build_tray(app: &tauri::App) -> tauri::Result<()> {
     use tauri::menu::{CheckMenuItem, Menu, MenuItem};
     use tauri::tray::TrayIconBuilder;
-    let paused_now = app
-        .state::<SettingsState>()
-        .0
-        .lock()
-        .unwrap_or_else(|p| p.into_inner())
-        .paused;
+    // build_tray runs BEFORE SettingsState is managed — reading state here
+    // panics (v0.1.9 first build crashed at startup exactly this way). Safe
+    // to hardcode false: normalize() forces paused=false at every launch.
     let show = MenuItem::with_id(app, "show", "显示面板", true, None::<&str>)?;
-    let pause = CheckMenuItem::with_id(app, "pause", "暂停采集", true, paused_now, None::<&str>)?;
+    let pause = CheckMenuItem::with_id(app, "pause", "暂停采集", true, false, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "退出 ClipVault", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show, &pause, &quit])?;
     let mut tray = TrayIconBuilder::with_id("main");
