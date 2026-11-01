@@ -5,6 +5,13 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.9] - 2026-11-01
+
+### Added
+
+- **隐私拦截可配置化**：图片采集总开关（图片无法过敏感词滤网，用户可一键不记图）；来源应用排除（指定进程名，其复制内容一律不记录）；托盘菜单“暂停采集”一键开关（带自动恢复分钟数，0=手动恢复）。
+- 以上全部默认关闭/放行——出厂行为与朴素剪贴板一致，配置后才生效。
+
 ## [0.1.8] - 2026-10-31
 
 ### Fixed
