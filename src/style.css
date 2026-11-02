@@ -1,6 +1,7 @@
 /* Document theme — matches the landing page: paper/ink, highlighter, Windows blue.
    Light is the primary "paper" look; dark is the same document after lights-out. */
 :root {
+  color-scheme: light;          /* native controls (select popups) follow the theme */
   --bg: #ffffff;
   --bg-2: #f7f7f4;
   --bg-hover: #f1f1ec;
@@ -16,6 +17,7 @@
   --radius: 5px;
 }
 :root[data-theme='dark'] {
+  color-scheme: dark;
   --bg: #131417;
   --bg-2: #1b1d22;
   --bg-hover: #23262d;

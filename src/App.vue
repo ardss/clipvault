@@ -668,7 +668,8 @@ onBeforeUnmount(() => {
 .hint { flex: 1; min-width: 40px; color: var(--fg-dim); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .icon-btn { border: 0; background: transparent; color: var(--fg-dim); width: 26px; height: 26px; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
 .icon-btn:hover { background: var(--bg-hover); color: var(--fg); }
-.lang-btn { width: auto; padding: 0 4px; font-size: 11px; cursor: pointer; }
+.lang-btn { width: auto; padding: 0 4px; font-size: 11px; cursor: pointer; background: var(--bg-2); color: var(--fg); border: 1.5px solid var(--border); }
+.lang-btn option { background: var(--bg); color: var(--fg); }
 .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; z-index: 60; }
 .modal { background: var(--bg); color: var(--fg); border: 1.5px solid var(--border); border-radius: 10px; padding: 16px 18px; width: min(320px, 86%); box-shadow: 0 12px 40px rgba(0,0,0,.35); }
 .modal-title { font-weight: 700; font-size: 14px; margin-bottom: 8px; }
