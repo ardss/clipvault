@@ -71,39 +71,118 @@ pub fn get_window_rect(hwnd: isize) -> Option<(i32, i32, i32, i32)> {
 }
 
 pub fn point_in_panel(x: i32, y: i32) -> bool {
-    // read the panel's CURRENT rect at click time — a rect cached at show
-    // time goes stale (async repositioning, DPI rescale) and then every
-    // click counts as "outside", instantly hiding the panel
-    let hwnd = PANEL_HWND.load(Ordering::SeqCst);
-    if hwnd != 0 {
-        unsafe {
-            let mut r = RECT::default();
-            if GetWindowRect(HWND(hwnd as _), &mut r).is_ok()
-                && x >= r.left
-                && x <= r.right
-                && y >= r.top
-                && y <= r.bottom
-            {
-                return true;
-            }
-        }
-    }
-    let (l, t, r, b) = *PANEL_RECT.lock().unwrap_or_else(|p| p.into_inner());
-    if x >= l && x <= r && y >= t && y <= b {
+    if point_in_rect(x, y, panel_rect_now()) {
         return true;
     }
     // the zoom preview window belongs to the panel UI — validated live: a
     // stale/recycled HWND used to swallow outside clicks for an unrelated window
     let zh = live_zoom_hwnd(ZOOM_HWND.load(Ordering::SeqCst));
     if zh != 0 && unsafe { IsWindowVisible(HWND(zh as _)) }.as_bool() {
-        unsafe {
-            let mut r2 = RECT::default();
-            if GetWindowRect(HWND(zh as _), &mut r2).is_ok() {
-                return x >= r2.left && x <= r2.right && y >= r2.top && y <= r2.bottom;
-            }
+        if let Some(r2) = window_rect_of(zh) {
+            return point_in_rect(x, y, Some(r2));
         }
     }
     false
+}
+
+/// `point_in_panel` inflated by `margin` px on every side — the mouse-leave
+/// auto-hide trigger uses a small hysteresis band so jitter at the panel edge
+/// does not flap the panel open/closed.
+pub fn point_near_panel(x: i32, y: i32, margin: i32) -> bool {
+    if let Some((l, t, r, b)) = panel_rect_now() {
+        if x >= l - margin && x <= r + margin && y >= t - margin && y <= b + margin {
+            return true;
+        }
+    }
+    let zh = live_zoom_hwnd(ZOOM_HWND.load(Ordering::SeqCst));
+    if zh != 0 && unsafe { IsWindowVisible(HWND(zh as _)) }.as_bool() {
+        if let Some((l, t, r, b)) = window_rect_of(zh) {
+            return x >= l - margin && x <= r + margin && y >= t - margin && y <= b + margin;
+        }
+    }
+    false
+}
+
+fn window_rect_of(hwnd: isize) -> Option<(i32, i32, i32, i32)> {
+    unsafe {
+        let mut r = RECT::default();
+        if GetWindowRect(HWND(hwnd as _), &mut r).is_ok() {
+            return Some((r.left, r.top, r.right, r.bottom));
+        }
+    }
+    None
+}
+
+/// The panel's CURRENT rect: live OS rect when PANEL_HWND is valid, else the
+/// cached fallback. (Read at click/move time — a rect cached at show time goes
+/// stale and every click would count as "outside".)
+fn panel_rect_now() -> Option<(i32, i32, i32, i32)> {
+    let hwnd = PANEL_HWND.load(Ordering::SeqCst);
+    if hwnd != 0 {
+        if let Some(r) = window_rect_of(hwnd) {
+            return Some(r);
+        }
+    }
+    let r = *PANEL_RECT.lock().unwrap_or_else(|p| p.into_inner());
+    if r.2 > r.0 && r.3 > r.1 {
+        Some(r)
+    } else {
+        None
+    }
+}
+
+fn point_in_rect(x: i32, y: i32, r: Option<(i32, i32, i32, i32)>) -> bool {
+    match r {
+        Some((l, t, ri, b)) => x >= l && x <= ri && y >= t && y <= b,
+        None => false,
+    }
+}
+
+// ---------- monitor clamping (shared by show_panel and edge probes) ----------
+
+/// Pure decision, unit-tested: left-edge anchor inside the monitor that holds
+/// (cx, cy) — the panel hugs the screen's left edge (edge-peek choreography),
+/// vertically centered on the cursor and clamped fully onto that monitor.
+pub(crate) fn anchor_left_edge(
+    mx: i32,
+    my: i32,
+    _mw: i32,
+    mh: i32,
+    _cx: i32,
+    cy: i32,
+    _w: i32,
+    h: i32,
+) -> (i32, i32) {
+    let x = mx;
+    let y = (cy - h / 2).clamp(my, (my + mh - h).max(my));
+    (x, y)
+}
+
+/// Shared monitor clamp: finds the monitor containing (cx, cy) via Tauri's
+/// monitor list and returns the left-edge-anchored, fully-on-monitor position
+/// for a `w×h` window. Used by show_panel; edge-probe windows are positioned
+/// directly from raw EnumDisplayMonitors data (their thread has no Tauri).
+pub fn clamp_to_monitor<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    cx: i32,
+    cy: i32,
+    w: i32,
+    h: i32,
+) -> (i32, i32) {
+    if let Ok(monitors) = app.available_monitors() {
+        for m in monitors {
+            let pos = m.position();
+            let size = m.size();
+            let (mx, my) = (pos.x, pos.y);
+            let (mw, mh) = (size.width as i32, size.height as i32);
+            if cx >= mx && cx < mx + mw && cy >= my && cy < my + mh {
+                return anchor_left_edge(mx, my, mw, mh, cx, cy, w, h);
+            }
+        }
+    }
+    // no monitor matched (cursor off-screen / enumeration failed): anchor to
+    // the primary-ish fallback at (0,0)
+    anchor_left_edge(0, 0, w.max(1), h.max(1), cx, cy, w, h)
 }
 
 /// Records which window inside `target` should receive the paste, so focus
@@ -553,6 +632,21 @@ pub fn spawn_zoom_watchdog(app: tauri::AppHandle<tauri::Wry>) {
             if OUTSIDE_CLICK.swap(false, Ordering::SeqCst) {
                 crate::commands::hide_panel(&app);
             }
+            // mouse-leave auto-hide (flag from the WM_MOUSEMOVE hook branch):
+            // pinned / suppressed panels never auto-collapse — re-checked here
+            // so a state flip between flag-set and this tick wins
+            if super::MOUSE_LEFT_PANEL.swap(false, Ordering::SeqCst)
+                && !PANEL_PINNED.load(Ordering::SeqCst)
+                && !super::AUTO_HIDE_SUPPRESSED.load(Ordering::SeqCst)
+                && PANEL_VISIBLE.load(Ordering::SeqCst)
+            {
+                let (x, y) = get_cursor_pos();
+                // require the cursor to STILL be outside the +8px band: the
+                // flag can be stale by one tick (cursor re-entered in between)
+                if !point_near_panel(x, y, 8) {
+                    crate::commands::hide_panel(&app);
+                }
+            }
             // validated live — a stale/recycled HWND must not keep the
             // watchdog spinning on an unrelated window
             let zh = live_zoom_hwnd(ZOOM_HWND.load(Ordering::SeqCst));
@@ -894,5 +988,30 @@ mod focus_contract_tests {
             let _ = DestroyWindow(other);
             let _ = DestroyWindow(parent);
         }
+    }
+}
+
+#[cfg(test)]
+mod clamp_tests {
+    use super::anchor_left_edge;
+
+    /// Left-edge anchoring + on-monitor clamping (shared by show_panel and the
+    /// edge-peek choreography): x pinned to the monitor's left edge, y centered
+    /// on the cursor but never leaving the monitor.
+    #[test]
+    fn left_edge_anchor_clamps_to_monitor() {
+        // 1920x1080 primary, cursor in the middle: hug left edge, center on cursor
+        let (x, y) = anchor_left_edge(0, 0, 1920, 1080, 960, 540, 380, 540);
+        assert_eq!((x, y), (0, 270));
+        // negative-origin secondary monitor (left of primary)
+        let (x, y) = anchor_left_edge(-1920, 0, 1920, 1080, -1000, 200, 380, 900);
+        assert_eq!(x, -1920, "must hug the LEFT edge of THAT monitor");
+        assert_eq!(y, 0, "cursor near the top with a tall panel → top-clamped");
+        // cursor near the bottom: panel bottom-clamped to the monitor
+        let (x, y) = anchor_left_edge(0, 0, 1920, 1080, 500, 1080, 380, 540);
+        assert_eq!(y, 540);
+        // tiny monitor smaller than the panel: y never goes above the top edge
+        let (x, y) = anchor_left_edge(0, 0, 800, 300, 400, 150, 380, 540);
+        assert_eq!((x, y), (0, 0));
     }
 }

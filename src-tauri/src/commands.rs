@@ -132,6 +132,23 @@ mod paste_threading_tests {
         // referencing the function forces the type check above
         let _probe = paste_clip_future;
     }
+
+    /// Same P0 guard for the OLE drag-out command: DoDragDrop blocks until the
+    /// user finishes the drag (seconds at least), so it must be an async
+    /// command running off the WebView2 host thread. Compile-only Send probe,
+    /// same pattern as paste_clip above.
+    #[allow(clippy::manual_async_fn)]
+    fn start_drag_out_future<'a>(
+        state: tauri::State<'a, crate::db::Db>,
+        id: i64,
+    ) -> impl std::future::Future<Output = Result<String, String>> + Send + 'a {
+        async move { super::start_drag_out(state, id).await }
+    }
+
+    #[test]
+    fn start_drag_out_is_an_async_command_running_off_the_main_thread() {
+        let _probe = start_drag_out_future;
+    }
 }
 
 #[cfg(test)]
@@ -311,30 +328,10 @@ pub(crate) fn show_panel<R: tauri::Runtime>(app: &AppHandle<R>) {
             .outer_size()
             .map(|s| (s.width as i32, s.height as i32))
             .unwrap_or((380, 540));
-        let mut x = cx + 12;
-        let mut y = cy + 12;
-        // flip near screen edges
-        if let Ok(monitors) = app.available_monitors() {
-            for m in monitors {
-                let pos = m.position();
-                let size = m.size();
-                let (mx, my) = (pos.x, pos.y);
-                let (mw, mh) = (size.width as i32, size.height as i32);
-                if cx >= mx && cx < mx + mw && cy >= my && cy < my + mh {
-                    if x + pw > mx + mw {
-                        x = cx - pw - 12;
-                    }
-                    if y + ph > my + mh {
-                        y = cy - ph - 12;
-                    }
-                    // final clamp: never let the panel leave this monitor
-                    // (width 380 fits everywhere; height clamps to the top)
-                    x = x.clamp(mx, (mx + mw - pw).max(mx));
-                    y = y.clamp(my, (my + mh - ph).max(my));
-                    break;
-                }
-            }
-        }
+        // 0.2 edge-peek choreography: expand anchored to the LEFT edge of the
+        // monitor that holds the cursor (shared with the edge-probe path),
+        // fully clamped onto that monitor.
+        let (x, y) = win::clamp_to_monitor(app, cx, cy, pw, ph);
         let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
         let _ = w.show();
         let _ = w.set_focus();
@@ -687,4 +684,107 @@ pub(crate) fn show_panel_cmd<R: tauri::Runtime>(app: AppHandle<R>) {
 #[tauri::command]
 pub(crate) fn hide_panel_cmd<R: tauri::Runtime>(app: AppHandle<R>) {
     hide_panel(&app);
+}
+
+/// Frontend suppression switch: held TRUE while the search field, settings
+/// page or a native drag-out is active, so the mouse-leave auto-hide and the
+/// edge-probe never collapse the panel mid-interaction.
+#[tauri::command]
+pub(crate) fn set_auto_hide_suppressed(on: bool) {
+    win::AUTO_HIDE_SUPPRESSED.store(on, Ordering::SeqCst);
+}
+
+/// Pin/unpin the panel (fixed state): a pinned panel never auto-collapses on
+/// mouse-leave and Alt+V's hide branch is a no-op until unpinned.
+#[tauri::command]
+pub(crate) fn set_panel_pinned(on: bool) {
+    win::PANEL_PINNED.store(on, Ordering::SeqCst);
+}
+
+// ---------- non-destructive logical grouping ----------
+
+#[tauri::command]
+pub(crate) fn merge_clips(
+    state: tauri::State<db::Db>,
+    source_id: i64,
+    target_id: i64,
+) -> Result<(), String> {
+    let conn = state.0.lock().unwrap_or_else(|p| p.into_inner());
+    db::merge_clips(&conn, source_id, target_id)
+}
+
+#[tauri::command]
+pub(crate) fn split_clip(state: tauri::State<db::Db>, id: i64) -> Result<(), String> {
+    let conn = state.0.lock().unwrap_or_else(|p| p.into_inner());
+    db::split_clip(&conn, id)
+}
+
+#[tauri::command]
+pub(crate) fn ungroup(state: tauri::State<db::Db>, group_id: i64) -> Result<(), String> {
+    let conn = state.0.lock().unwrap_or_else(|p| p.into_inner());
+    db::ungroup(&conn, group_id)
+}
+
+#[tauri::command]
+pub(crate) fn reorder_groups(state: tauri::State<db::Db>, ids: Vec<i64>) -> Result<(), String> {
+    let conn = state.0.lock().unwrap_or_else(|p| p.into_inner());
+    db::reorder_groups(&conn, &ids)
+}
+
+#[tauri::command]
+pub(crate) fn reorder_clips(
+    state: tauri::State<db::Db>,
+    group_id: i64,
+    ids: Vec<i64>,
+) -> Result<(), String> {
+    let conn = state.0.lock().unwrap_or_else(|p| p.into_inner());
+    db::reorder_clips(&conn, group_id, &ids)
+}
+
+// ---------- OLE drag-out ----------
+
+/// async => runs on the IPC runtime thread (the same P0-deadlock guard as
+/// paste_clip / create_zoom). The actual OLE session runs on its own
+/// CoInitializeEx(STA) thread (win::dragdrop) — this command merely blocks a
+/// WORKER thread until the drag ends, never the main/WebView2 host thread.
+#[tauri::command]
+pub(crate) async fn start_drag_out(
+    state: tauri::State<'_, db::Db>,
+    id: i64,
+) -> Result<String, String> {
+    let (kind, content, _image_path, text_path) = {
+        let conn = state.0.lock().unwrap_or_else(|p| p.into_inner());
+        db::get_clip(&conn, id)
+    }?;
+    // spike scope: text rows only (CF_UNICODETEXT). file/image kinds are the
+    // follow-up (CF_HDROP / PNG HGLOBAL) and fail loudly here rather than
+    // degrading to a plain-text drag.
+    let text = match kind.as_str() {
+        "text" => {
+            oversized_text_payload(text_path.as_deref(), content.as_deref().unwrap_or_default())?
+        }
+        "html" => {
+            let (plain, _) = {
+                let conn = state.0.lock().unwrap_or_else(|p| p.into_inner());
+                db::get_html(&conn, id)
+            }?;
+            plain
+        }
+        _ => {
+            return Err(format!(
+                "drag out not supported for kind '{kind}' (spike: text/html only)"
+            ))
+        }
+    };
+    let outcome = win::run_text_drag(text);
+    cvlog!("[cv] drag-out id={id} outcome={outcome:?}");
+    match outcome {
+        win::DragOutcome::Dropped => {
+            let conn = state.0.lock().unwrap_or_else(|p| p.into_inner());
+            db::mark_used(&conn, id);
+            Ok("dropped".into())
+        }
+        win::DragOutcome::Cancelled => Ok("cancelled".into()),
+        win::DragOutcome::Failed => Err("drag session failed to start".into()),
+    }
 }

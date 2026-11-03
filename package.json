@@ -1,7 +1,7 @@
 {
   "name": "clipvault-v3",
   "private": true,
-  "version": "0.1.11",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:e2e:demo": "vite build && node tests/maintenance-browser-e2e.mjs",
-    "test:e2e:panel": "vite build && node tests/panel-webview-e2e.mjs"
+    "test:e2e:panel": "vite build && node tests/panel-webview-e2e.mjs",
+    "tauri": "tauri"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",

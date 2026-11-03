@@ -35,6 +35,14 @@ pub struct Settings {
     /// (0 = pause until manually resumed)
     #[serde(default)]
     pub auto_resume_minutes: u32,
+    /// edge-peek summon: resident 3px mouse-transparent probe strips on the
+    /// left screen edge that expand the panel after ~180ms of cursor dwell
+    #[serde(default = "default_true")]
+    pub edge_peek_enabled: bool,
+    /// pinned (fixed) panel: expanded until the user unpins — the mouse-leave
+    /// auto-hide and the Alt+V hide branch are disabled while set
+    #[serde(default)]
+    pub panel_pinned: bool,
 }
 
 fn default_hotkey() -> String {
@@ -58,6 +66,8 @@ impl Default for Settings {
             image_capture: true,
             excluded_apps: Vec::new(),
             auto_resume_minutes: 0,
+            edge_peek_enabled: true,
+            panel_pinned: false,
         }
     }
 }
@@ -142,6 +152,13 @@ fn normalize(mut s: Settings) -> Settings {
     s
 }
 
+/// Applies the three-state panel flags to the runtime: the pinned atomic
+/// (read by the mouse hook / probe threads) and edge-probe residency.
+fn apply_panel_state<R: tauri::Runtime>(_app: &AppHandle<R>, s: &Settings) {
+    crate::win::PANEL_PINNED.store(s.panel_pinned, std::sync::atomic::Ordering::SeqCst);
+    crate::win::set_edge_peek_enabled(s.edge_peek_enabled);
+}
+
 /// Reads settings.json, recovering from settings.json.bak (the last
 /// known-good save) when the primary file is unreadable. Returns the
 /// settings and whether we had to fall back to defaults (drives the
@@ -218,6 +235,7 @@ pub(crate) fn apply_settings<R: tauri::Runtime>(app: &AppHandle<R>, s: &Settings
         let _ = w.set_size(tauri::LogicalSize::new(380.0, h));
     }
     win::set_autostart(s.autostart);
+    apply_panel_state(app, s);
     // setup runs on the main thread, so a direct register is correct here
     let _ = register_hotkey_now(app, &s.hotkey, "Alt+V");
 }
@@ -441,6 +459,8 @@ mod settings_tests {
             image_capture: true,
             excluded_apps: vec!["keepass".into()],
             auto_resume_minutes: 5,
+            edge_peek_enabled: true,
+            panel_pinned: false,
         };
         let merged = merge_preserving_panel_height(snapshot, 812.0);
         assert_eq!(merged.panel_height, 812.0, "the fresher height must win");
@@ -489,6 +509,7 @@ pub(crate) fn set_settings<R: tauri::Runtime>(
     // an explicit save means the settings are real again — unfreeze pruning
     state.1.store(false, std::sync::atomic::Ordering::SeqCst);
     save_settings(&app, &merged);
+    apply_panel_state(&app, &merged);
     *current = merged;
     drop(current);
     Ok(())

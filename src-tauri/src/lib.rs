@@ -322,6 +322,14 @@ pub fn run() {
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, _shortcut, event| {
                     if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                        // three-state semantics: hidden -> expand; expanded ->
+                        // collapse; PINNED -> Alt+V does not collapse (the
+                        // pinned panel stays until the user unpins)
+                        if win::PANEL_VISIBLE.load(Ordering::SeqCst)
+                            && win::PANEL_PINNED.load(Ordering::SeqCst)
+                        {
+                            return;
+                        }
                         if win::PANEL_VISIBLE.load(Ordering::SeqCst) {
                             hide_panel(app);
                         } else {
@@ -339,6 +347,17 @@ pub fn run() {
             win::hide_single_instance_window(app.config().identifier.as_str());
             let (settings, prune_frozen) = load_settings(app.handle());
             apply_settings(app.handle(), &settings);
+            // edge-peek probe thread: resident; residency (and window
+            // creation) is gated by the edge_peek_enabled flag it polls
+            win::EDGE_PEEK_ENABLED.store(settings.edge_peek_enabled, Ordering::SeqCst);
+            win::PANEL_PINNED.store(settings.panel_pinned, Ordering::SeqCst);
+            win::spawn_edge_probes(app.handle().clone());
+            // runtime self-reported version — the delivery contract's only
+            // qualifying app-level install evidence
+            cvlog_write(format_args!(
+                "[cv] version {} starting",
+                env!("CARGO_PKG_VERSION")
+            ));
             build_tray(app)?;
             db::init(app)?;
             app.manage(settings::PauseUntil(std::sync::Mutex::new(None)));
@@ -374,6 +393,14 @@ pub fn run() {
             commands::paste_clip,
             commands::show_panel_cmd,
             commands::hide_panel_cmd,
+            commands::set_auto_hide_suppressed,
+            commands::set_panel_pinned,
+            commands::merge_clips,
+            commands::split_clip,
+            commands::ungroup,
+            commands::reorder_groups,
+            commands::reorder_clips,
+            commands::start_drag_out,
             settings::get_settings,
             settings::set_settings,
             settings::set_paused,
@@ -599,16 +626,40 @@ mod image_reconcile_tests {
     }
 }
 
+/// Tray-driven panel-flag changes are persisted into settings.json so they
+/// survive restarts (kept in sync with the managed SettingsState when present).
+fn persist_panel_flags<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    pinned: bool,
+    edge_peek: bool,
+) {
+    if let Some(st) = app.try_state::<SettingsState>() {
+        let s = {
+            let mut s = st.0.lock().unwrap_or_else(|p| p.into_inner());
+            s.panel_pinned = pinned;
+            s.edge_peek_enabled = edge_peek;
+            s.clone()
+        };
+        settings::save_settings(app, &s);
+    }
+}
+
 fn build_tray(app: &tauri::App) -> tauri::Result<()> {
     use tauri::menu::{CheckMenuItem, Menu, MenuItem};
     use tauri::tray::TrayIconBuilder;
     // build_tray runs BEFORE SettingsState is managed — reading state here
     // panics (v0.1.9 first build crashed at startup exactly this way). Safe
     // to hardcode false: normalize() forces paused=false at every launch.
+    // build_tray runs BEFORE SettingsState is managed — mirror the settings
+    // defaults here exactly (normalize would produce the same values).
+    let pinned_now = win::PANEL_PINNED.load(Ordering::SeqCst);
+    let edge_now = win::EDGE_PEEK_ENABLED.load(Ordering::SeqCst);
     let show = MenuItem::with_id(app, "show", "显示面板", true, None::<&str>)?;
     let pause = CheckMenuItem::with_id(app, "pause", "暂停采集", true, false, None::<&str>)?;
+    let pin = CheckMenuItem::with_id(app, "pin", "固定面板", true, pinned_now, None::<&str>)?;
+    let edge = CheckMenuItem::with_id(app, "edge", "边缘唤出", true, edge_now, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "退出 ClipVault", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&show, &pause, &quit])?;
+    let menu = Menu::with_items(app, &[&show, &pause, &pin, &edge, &quit])?;
     let mut tray = TrayIconBuilder::with_id("main");
     if let Some(icon) = app.default_window_icon() {
         tray = tray.icon(icon.clone());
@@ -626,6 +677,16 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
                     .paused;
                 settings::set_paused(app.clone(), !currently);
             }
+            "pin" => {
+                let next = !win::PANEL_PINNED.load(Ordering::SeqCst);
+                win::PANEL_PINNED.store(next, Ordering::SeqCst);
+                persist_panel_flags(app, next, win::EDGE_PEEK_ENABLED.load(Ordering::SeqCst));
+            }
+            "edge" => {
+                let next = !win::EDGE_PEEK_ENABLED.load(Ordering::SeqCst);
+                win::set_edge_peek_enabled(next);
+                persist_panel_flags(app, win::PANEL_PINNED.load(Ordering::SeqCst), next);
+            }
             "quit" => app.exit(0),
             _ => {}
         })
@@ -634,7 +695,7 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
 }
 
 /// Integration-test surface (tests/ipc_contract.rs): a mock-runtime app
-/// carrying the REAL invoke handler — all 16 IPC commands exactly as
+/// carrying the REAL invoke handler — all 24 IPC commands exactly as
 /// `run()` registers them — plus the REAL managed state (in-memory Db with
 /// the production schema, default SettingsState). It deliberately does NOT
 /// run run()'s setup: no tray, no global hotkey, no clipboard listener, no
@@ -666,6 +727,14 @@ pub fn ipc_test_app() -> tauri::App<tauri::test::MockRuntime> {
             commands::paste_clip,
             commands::show_panel_cmd,
             commands::hide_panel_cmd,
+            commands::set_auto_hide_suppressed,
+            commands::set_panel_pinned,
+            commands::merge_clips,
+            commands::split_clip,
+            commands::ungroup,
+            commands::reorder_groups,
+            commands::reorder_clips,
+            commands::start_drag_out,
             settings::get_settings,
             settings::set_settings,
             settings::set_paused,

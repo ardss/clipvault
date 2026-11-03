@@ -2,6 +2,10 @@
 # the repository root, where the crate lives one level down in src-tauri.
 [workspace]
 members = ["src-tauri"]
+# .zcode holds workflow state (run journals); a junction src-tauri -> ../../src-tauri
+# lives there so gate commands with relative --manifest-path resolve when the
+# harness cwd is the run dir. Canonicalized path must stay out of the workspace.
+exclude = [".zcode"]
 resolver = "2"
 
 # Profiles MUST live at the workspace root — cargo warns and ignores them in

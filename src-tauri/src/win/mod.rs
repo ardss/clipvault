@@ -24,15 +24,34 @@ pub static PANEL_VISIBLE: AtomicBool = AtomicBool::new(false);
 pub static PANEL_HWND: AtomicIsize = AtomicIsize::new(0);
 pub static PANEL_RECT: StdMutex<(i32, i32, i32, i32)> = StdMutex::new((0, 0, 0, 0));
 pub static OUTSIDE_CLICK: AtomicBool = AtomicBool::new(false);
+/// Panel pinned (fixed) state: while true the mouse-leave auto-hide and the
+/// Alt+V hide branch are disabled — the panel stays expanded until the user
+/// unpins. Mirror of Settings.panel_pinned, kept atomic so the low-level hook
+/// and polling threads can read it without touching the settings mutex.
+pub static PANEL_PINNED: AtomicBool = AtomicBool::new(false);
+/// Frontend suppression: set while the search field / settings page / a
+/// native drag-out is active, so cursor movement outside the panel never
+/// collapses it mid-interaction.
+pub static AUTO_HIDE_SUPPRESSED: AtomicBool = AtomicBool::new(false);
+/// "expanded AND the cursor left the panel(+8px)" flag set by the mouse hook
+/// on WM_MOUSEMOVE; consumed (and panel hidden) by the zoom-watchdog worker
+/// thread, same flag+poll pattern as OUTSIDE_CLICK — hiding from the hook
+/// thread risks deadlock.
+pub static MOUSE_LEFT_PANEL: AtomicBool = AtomicBool::new(false);
 pub static FOCUS_HWND: AtomicIsize = AtomicIsize::new(0);
 pub static ZOOM_HWND: AtomicIsize = AtomicIsize::new(0);
 
 mod autostart;
 mod clipboard;
 mod dib;
+pub mod dragdrop;
+pub mod edge;
 mod formats;
 mod injector;
 mod window;
+
+pub use dragdrop::{run_text_drag, DragOutcome};
+pub use edge::{set_edge_peek_enabled, spawn_edge_probes, EDGE_PEEK_ENABLED};
 
 // explicit re-exports: only what lib.rs (and the tests) actually use.
 // Children import from each other via `super::<module>::<item>`, never
@@ -49,9 +68,10 @@ pub use formats::{
 };
 pub use injector::{focus_hwnd_take, helper_alt_tap, injector_loop, request_paste_keystroke};
 pub use window::{
-    capture_focus, current_focus_attribution, get_cursor_pos, get_foreground, get_window_rect,
-    live_zoom_hwnd, log_send_time, point_in_panel, restore_focus_verified, restore_foreground,
-    spawn_zoom_watchdog, target_elevated, update_panel_rect, FocusRestore,
+    capture_focus, clamp_to_monitor, current_focus_attribution, get_cursor_pos, get_foreground,
+    get_window_rect, live_zoom_hwnd, log_send_time, point_in_panel, point_near_panel,
+    restore_focus_verified, restore_foreground, spawn_zoom_watchdog, target_elevated,
+    update_panel_rect, FocusRestore,
 };
 
 // ---------- clipboard listener thread ----------
@@ -209,12 +229,28 @@ struct MSLLHOOKSTRUCT {
 }
 
 unsafe extern "system" fn mouse_proc(n_code: i32, w_param: WPARAM, l_param: LPARAM) -> LRESULT {
-    if n_code >= 0 && w_param.0 as u32 == WM_LBUTTONDOWN {
+    if n_code >= 0 {
         let p = *(l_param.0 as *const MSLLHOOKSTRUCT);
-        if PANEL_VISIBLE.load(Ordering::SeqCst) && !point_in_panel(p.pt.x, p.pt.y) {
-            // flag only — the main thread polls and hides (hiding from the hook
-            // thread risks deadlock)
-            OUTSIDE_CLICK.store(true, Ordering::SeqCst);
+        match w_param.0 as u32 {
+            WM_LBUTTONDOWN => {
+                if PANEL_VISIBLE.load(Ordering::SeqCst) && !point_in_panel(p.pt.x, p.pt.y) {
+                    // flag only — the main thread polls and hides (hiding from the hook
+                    // thread risks deadlock)
+                    OUTSIDE_CLICK.store(true, Ordering::SeqCst);
+                }
+            }
+            WM_MOUSEMOVE => {
+                // expanded AND the cursor left panel(+8px): flag it; the worker
+                // thread hides (pinned / suppressed panels never auto-hide)
+                if PANEL_VISIBLE.load(Ordering::SeqCst)
+                    && !PANEL_PINNED.load(Ordering::SeqCst)
+                    && !AUTO_HIDE_SUPPRESSED.load(Ordering::SeqCst)
+                    && !point_near_panel(p.pt.x, p.pt.y, 8)
+                {
+                    MOUSE_LEFT_PANEL.store(true, Ordering::SeqCst);
+                }
+            }
+            _ => {}
         }
     }
     CallNextHookEx(None, n_code, w_param, l_param)

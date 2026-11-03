@@ -15,6 +15,10 @@ pub struct Clip {
     pub use_count: i64,
     pub created_at: i64,
     pub text_path: Option<String>,
+    /// non-destructive logical group (None = ungrouped)
+    pub group_id: Option<i64>,
+    /// position inside the group (None = ungrouped)
+    pub group_order: Option<i64>,
 }
 
 pub fn init(app: &tauri::App) -> Result<(), String> {
@@ -115,6 +119,27 @@ pub(crate) fn setup_schema(conn: &Connection) -> Result<(), String> {
     .map_err(|e| e.to_string())?;
     // migration: drop the old full-text index (if upgrading) after backfill
     let _ = conn.execute_batch("DROP INDEX IF EXISTS idx_clips_content;");
+    // 0.2 non-destructive logical grouping: clips gain group_id (NULL =
+    // ungrouped, old rows zero-change) + group_order; clip_groups is a NEW
+    // empty table. No DELETE / REBUILD anywhere.
+    if !has_col("group_id") {
+        conn.execute_batch("ALTER TABLE clips ADD COLUMN group_id INTEGER;")
+            .map_err(|e| e.to_string())?;
+    }
+    if !has_col("group_order") {
+        conn.execute_batch("ALTER TABLE clips ADD COLUMN group_order INTEGER;")
+            .map_err(|e| e.to_string())?;
+    }
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS clip_groups(
+           id INTEGER PRIMARY KEY AUTOINCREMENT,
+           name TEXT NOT NULL,
+           created_at INTEGER NOT NULL,
+           collapsed INTEGER NOT NULL DEFAULT 0
+         );
+         CREATE INDEX IF NOT EXISTS idx_clips_group ON clips(group_id) WHERE group_id IS NOT NULL;",
+    )
+    .map_err(|e| e.to_string())?;
     // silent btree corruption passes DDL — verify before serving queries
     let ok = conn
         .query_row("PRAGMA quick_check", [], |r| r.get::<_, String>(0))
@@ -166,11 +191,12 @@ fn row_to_clip(r: &rusqlite::Row) -> rusqlite::Result<Clip> {
         use_count: r.get(6)?,
         created_at: r.get(7)?,
         text_path: r.get(8)?,
+        group_id: r.get(9)?,
+        group_order: r.get(10)?,
     })
 }
 
-const COLS: &str =
-    "id, kind, preview, image_path, substr(content, 1, 4096) AS content, pinned, use_count, created_at, text_path";
+const COLS: &str = "id, kind, preview, image_path, substr(content, 1, 4096) AS content, pinned, use_count, created_at, text_path, group_id, group_order";
 /// texts at or above this length MAY be truncated by the list query — the
 /// zoom window re-fetches the full body via clip_content. 4096 caps the
 /// refresh payload (~2 MB at 500 rows) while previews never exceed it
@@ -232,7 +258,48 @@ pub fn list(conn: &Connection, filter: &str, query: &str) -> Result<Vec<Clip>, S
         // silent row drops are the symptom of btree corruption — surface it
         cvlog!("[cv] list: {dropped} rows unreadable (possible db corruption)");
     }
-    Ok(out)
+    // group ordering is guaranteed Rust-side (pure, unit-tested): grouped
+    // entries appear as contiguous blocks — groups ordered by their newest
+    // member, members by group_order — then the ungrouped rows keep their
+    // pinned/created_at order. NULL group rows behave exactly as before 0.2.
+    Ok(apply_group_order(out))
+}
+
+/// Pure group ordering: partition into group blocks + ungrouped tail.
+/// Group blocks sort by their newest member's created_at (desc); members
+/// inside a block sort by group_order (asc, ties keep recency order).
+pub(crate) fn apply_group_order(clips: Vec<Clip>) -> Vec<Clip> {
+    if !clips.iter().any(|c| c.group_id.is_some()) {
+        return clips;
+    }
+    let mut blocks: Vec<(i64, Vec<Clip>)> = Vec::new();
+    let mut ungrouped: Vec<Clip> = Vec::new();
+    for c in clips {
+        match c.group_id {
+            Some(g) => match blocks.iter_mut().find(|(id, _)| *id == g) {
+                Some((_, v)) => v.push(c),
+                None => blocks.push((g, vec![c])),
+            },
+            None => ungrouped.push(c),
+        }
+    }
+    // block order comes from the one column: reorder_groups stamps each
+    // group's members as index*1_000_000+rank, so the minimum group_order per
+    // block is the group's position (unordered blocks keep recency order via
+    // the stable sort)
+    blocks.sort_by_key(|(_, v)| {
+        v.iter()
+            .map(|c| c.group_order.unwrap_or(i64::MAX))
+            .min()
+            .unwrap_or(i64::MAX)
+    });
+    let mut out = Vec::with_capacity(ungrouped.len());
+    for (_, mut members) in blocks {
+        members.sort_by_key(|c| c.group_order.unwrap_or(i64::MAX));
+        out.extend(members);
+    }
+    out.extend(ungrouped);
+    out
 }
 
 /// Stable 64-bit content hash (FNV-1a) — the dedup lookup key AND the
@@ -338,6 +405,22 @@ pub fn enforce_limit(conn: &Connection, max: i64) -> Result<Vec<EvictedFiles>, S
         rows.collect::<Result<Vec<_>, _>>()
             .map_err(|e| e.to_string())?
     };
+    // groups of evicted members auto-dissolve below (policy: a group whose
+    // membership shrank below 2 must not dangle)
+    let affected_groups: Vec<i64> = {
+        let mut stmt = tx
+            .prepare(
+                "SELECT DISTINCT group_id FROM (
+                   SELECT group_id FROM clips WHERE pinned=0 AND group_id IS NOT NULL
+                   ORDER BY created_at DESC LIMIT -1 OFFSET ?1
+                 )",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([max], |r| r.get::<_, i64>(0))
+            .map_err(|e| e.to_string())?;
+        rows.flatten().collect()
+    };
     tx.execute(
         "DELETE FROM clips WHERE id IN (
            SELECT id FROM clips WHERE pinned=0 ORDER BY created_at DESC LIMIT -1 OFFSET ?1)",
@@ -345,6 +428,9 @@ pub fn enforce_limit(conn: &Connection, max: i64) -> Result<Vec<EvictedFiles>, S
     )
     .map_err(|e| e.to_string())?;
     tx.commit().map_err(|e| e.to_string())?;
+    for g in affected_groups {
+        dissolve_group_if_small(conn, g)?;
+    }
     if !victims.is_empty() {
         // "cleared means gone" applies to pruning too: secure_delete zeroed
         // the DELETE's page images, but the victims' plaintext INSERT frames
@@ -448,6 +534,9 @@ pub fn clear_all(conn: &Connection) -> Result<Vec<EvictedFiles>, String> {
         .map_err(|e| e.to_string())?;
     tx.execute("DELETE FROM clips", [])
         .map_err(|e| e.to_string())?;
+    // groups are pure metadata over the clips — a wiped history wipes them
+    // too; a schema predating clip_groups simply has nothing to wipe
+    let _ = tx.execute("DELETE FROM clip_groups", []);
     tx.commit().map_err(|e| e.to_string())?;
     // both pragmas return rows — execute/query them, not execute_batch
     let _: Result<(), _> = conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()));
@@ -463,18 +552,19 @@ pub fn clear_all(conn: &Connection) -> Result<Vec<EvictedFiles>, String> {
 pub fn delete(conn: &Connection, id: i64) -> Result<(), String> {
     let _ = conn.pragma_update(None, "secure_delete", true);
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
-    let (image_path, text_path): (Option<String>, Option<String>) = tx
+    let (image_path, text_path, group_id): (Option<String>, Option<String>, Option<i64>) = tx
         .query_row(
-            "SELECT image_path, text_path FROM clips WHERE id=?1",
+            "SELECT image_path, text_path, group_id FROM clips WHERE id=?1",
             [id],
             |r| {
                 Ok((
                     r.get::<_, Option<String>>(0)?,
                     r.get::<_, Option<String>>(1)?,
+                    r.get::<_, Option<i64>>(2)?,
                 ))
             },
         )
-        .unwrap_or((None, None));
+        .unwrap_or((None, None, None));
     tx.execute("DELETE FROM clips WHERE id=?1", [id])
         .map_err(|e| e.to_string())?;
     tx.commit().map_err(|e| e.to_string())?;
@@ -483,6 +573,9 @@ pub fn delete(conn: &Connection, id: i64) -> Result<(), String> {
     let _: Result<(), _> = conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()));
     let _ = conn.pragma_update(None, "secure_delete", false);
     remove_clip_files(image_path.as_deref(), text_path.as_deref());
+    if let Some(g) = group_id {
+        dissolve_group_if_small(conn, g)?;
+    }
     Ok(())
 }
 
@@ -565,6 +658,198 @@ pub fn remove_clip_files(image_path: Option<&str>, text_path: Option<&str>) {
     if let Some(p) = text_path {
         let _ = std::fs::remove_file(p);
     }
+}
+
+// ---------- non-destructive logical grouping (0.2) ----------
+//
+// Groups are PURE metadata over clip rows: deleting a group never deletes a
+// clip. Policy: when a group's membership drops below 2 (member deleted,
+// evicted by enforce_limit, split off, ...) the group auto-dissolves — the
+// remaining member returns to ungrouped and the group row is deleted, so no
+// dangling group_id survives anywhere.
+
+fn group_member_count(conn: &Connection, group_id: i64) -> i64 {
+    conn.query_row(
+        "SELECT count(*) FROM clips WHERE group_id=?1",
+        [group_id],
+        |r| r.get(0),
+    )
+    .unwrap_or(0)
+}
+
+/// Dissolves `group_id` when fewer than 2 clips remain in it: surviving
+/// members go ungrouped (group_id NULL), the group row is deleted.
+pub(crate) fn dissolve_group_if_small(conn: &Connection, group_id: i64) -> Result<(), String> {
+    if group_member_count(conn, group_id) >= 2 {
+        return Ok(());
+    }
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    tx.execute(
+        "UPDATE clips SET group_id=NULL, group_order=NULL WHERE group_id=?1",
+        [group_id],
+    )
+    .map_err(|e| e.to_string())?;
+    tx.execute("DELETE FROM clip_groups WHERE id=?1", [group_id])
+        .map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Merges `source_id` into `target_id`'s group (creating the group from the
+/// target when it is ungrouped). The source joins at the END of the group's
+/// order. Pure logic — no row content changes, nothing is deleted.
+pub fn merge_clips(conn: &Connection, source_id: i64, target_id: i64) -> Result<(), String> {
+    if source_id == target_id {
+        return Err("cannot merge a clip into itself".into());
+    }
+    let (target_group, source_old_group): (Option<i64>, Option<i64>) = {
+        let mut stmt = conn
+            .prepare("SELECT group_id FROM clips WHERE id=?1")
+            .map_err(|e| e.to_string())?;
+        let t = stmt
+            .query_row([target_id], |r| r.get::<_, Option<i64>>(0))
+            .map_err(|e| format!("merge: target clip {target_id} missing: {e}"))?;
+        let s = stmt
+            .query_row([source_id], |r| r.get::<_, Option<i64>>(0))
+            .map_err(|e| format!("merge: source clip {source_id} missing: {e}"))?;
+        (t, s)
+    };
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    let group = match target_group {
+        Some(g) => g,
+        None => {
+            let name: String = tx
+                .query_row("SELECT preview FROM clips WHERE id=?1", [target_id], |r| {
+                    r.get::<_, String>(0)
+                })
+                .map_err(|e| format!("merge: target clip {target_id} missing: {e}"))?;
+            tx.execute(
+                "INSERT INTO clip_groups(name, created_at, collapsed) VALUES(?1, ?2, 0)",
+                rusqlite::params![name, now()],
+            )
+            .map_err(|e| e.to_string())?;
+            let g = tx.last_insert_rowid();
+            // the freshly created group's seed member IS the target
+            tx.execute(
+                "UPDATE clips SET group_id=?2, group_order=0 WHERE id=?1",
+                rusqlite::params![target_id, g],
+            )
+            .map_err(|e| e.to_string())?;
+            g
+        }
+    };
+    let next_order: i64 = tx
+        .query_row(
+            "SELECT COALESCE(max(group_order), -1) + 1 FROM clips WHERE group_id=?1",
+            [group],
+            |r| r.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+    tx.execute(
+        "UPDATE clips SET group_id=?2, group_order=?3 WHERE id=?1",
+        rusqlite::params![source_id, group, next_order],
+    )
+    .map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
+    // if the source left a group that has now shrunk below 2, it dissolves
+    if let Some(old) = source_old_group.filter(|g| *g != group) {
+        dissolve_group_if_small(conn, old)?;
+    }
+    Ok(())
+}
+
+/// Removes one clip from its group (stays in history, becomes ungrouped);
+/// a group left with a single member auto-dissolves.
+pub fn split_clip(conn: &Connection, id: i64) -> Result<(), String> {
+    let group: Option<i64> = conn
+        .query_row("SELECT group_id FROM clips WHERE id=?1", [id], |r| r.get(0))
+        .map_err(|e| format!("split: clip {id} missing: {e}"))?;
+    conn.execute(
+        "UPDATE clips SET group_id=NULL, group_order=NULL WHERE id=?1",
+        [id],
+    )
+    .map_err(|e| e.to_string())?;
+    if let Some(g) = group {
+        dissolve_group_if_small(conn, g)?;
+    }
+    Ok(())
+}
+
+/// Deletes the GROUP only — every member returns to ungrouped (纯逻辑分组:
+/// 删组不删条目).
+pub fn ungroup(conn: &Connection, group_id: i64) -> Result<(), String> {
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    tx.execute(
+        "UPDATE clips SET group_id=NULL, group_order=NULL WHERE group_id=?1",
+        [group_id],
+    )
+    .map_err(|e| e.to_string())?;
+    tx.execute("DELETE FROM clip_groups WHERE id=?1", [group_id])
+        .map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Reorders groups AND their member order in one pass: `ids` is the desired
+/// group sequence; each group's members get group_order = index*1_000_000 +
+/// rank so group blocks and member order both emerge from the one column
+/// (clip_groups carries no order column by schema contract).
+pub fn reorder_groups(conn: &Connection, ids: &[i64]) -> Result<(), String> {
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    for (gi, group) in ids.iter().enumerate() {
+        let members: Vec<i64> = {
+            let mut stmt = tx
+                .prepare("SELECT id FROM clips WHERE group_id=?1 ORDER BY group_order, created_at")
+                .map_err(|e| e.to_string())?;
+            let rows = stmt
+                .query_map([group], |r| r.get::<_, i64>(0))
+                .map_err(|e| e.to_string())?;
+            rows.flatten().collect()
+        };
+        for (mi, id) in members.iter().enumerate() {
+            tx.execute(
+                "UPDATE clips SET group_order=?2 WHERE id=?1",
+                rusqlite::params![id, (gi as i64) * 1_000_000 + mi as i64],
+            )
+            .map_err(|e| e.to_string())?;
+        }
+    }
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Reorders members within one group: `ids` get group_order 0..n in list
+/// order; members of the same group NOT listed are appended after them.
+pub fn reorder_clips(conn: &Connection, group_id: i64, ids: &[i64]) -> Result<(), String> {
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    for (i, id) in ids.iter().enumerate() {
+        tx.execute(
+            "UPDATE clips SET group_order=?2 WHERE id=?1 AND group_id=?3",
+            rusqlite::params![id, i as i64, group_id],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    let rest: Vec<i64> = {
+        let mut stmt = tx
+            .prepare(
+                "SELECT id FROM clips WHERE group_id=?1 AND group_order IS NULL ORDER BY created_at",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([group_id], |r| r.get::<_, i64>(0))
+            .map_err(|e| e.to_string())?;
+        rows.flatten().collect()
+    };
+    let base = ids.len() as i64;
+    for (i, id) in rest.iter().enumerate() {
+        tx.execute(
+            "UPDATE clips SET group_order=?2 WHERE id=?1",
+            rusqlite::params![id, base + i as i64],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 /// (kind, content, image_path, text_path) of one row. text_path is what lets
@@ -841,7 +1126,9 @@ mod stress_tests {
                pinned INTEGER NOT NULL DEFAULT 0,
                use_count INTEGER NOT NULL DEFAULT 0,
                created_at INTEGER NOT NULL,
-               text_path TEXT
+               text_path TEXT,
+               group_id INTEGER,
+               group_order INTEGER
              );
              CREATE INDEX idx_clips_pinned ON clips(pinned, created_at);",
         )
@@ -1057,7 +1344,9 @@ mod stress_tests {
                pinned INTEGER NOT NULL DEFAULT 0,
                use_count INTEGER NOT NULL DEFAULT 0,
                created_at INTEGER NOT NULL,
-               text_path TEXT
+               text_path TEXT,
+               group_id INTEGER,
+               group_order INTEGER
              );
              CREATE INDEX IF NOT EXISTS idx_clips_pinned ON clips(pinned, created_at);",
         )
@@ -1904,7 +2193,8 @@ mod side_file_tests {
                html BLOB, files TEXT, preview TEXT NOT NULL,
                pinned INTEGER NOT NULL DEFAULT 0,
                use_count INTEGER NOT NULL DEFAULT 0,
-               created_at INTEGER NOT NULL, text_path TEXT);",
+               created_at INTEGER NOT NULL, text_path TEXT,
+               group_id INTEGER, group_order INTEGER);",
         )
         .unwrap();
         conn
@@ -2136,5 +2426,281 @@ mod dedup_tests {
             .query_row("SELECT kind FROM clips", [], |r| r.get(0))
             .unwrap();
         assert_eq!(kind, "html");
+    }
+}
+
+#[cfg(test)]
+mod group_tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn unique_dir(tag: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!(
+            "cvgroup_{}_{}_{}",
+            tag,
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    /// OLD (pre-0.2) schema on disk with real rows → open → setup_schema must
+    /// add group_id/group_order losslessly: rows intact, content intact, old
+    /// rows read as ungrouped (NULL).
+    #[test]
+    fn migration_from_pre_group_db_is_lossless_and_ungrouped() {
+        let dir = unique_dir("migrate");
+        {
+            let conn = Connection::open(dir.join("clips.db")).unwrap();
+            conn.execute_batch("PRAGMA journal_mode=WAL;").unwrap();
+            // exact pre-group production schema
+            conn.execute_batch(
+                "CREATE TABLE clips(
+                   id INTEGER PRIMARY KEY AUTOINCREMENT,
+                   kind TEXT NOT NULL,
+                   content TEXT,
+                   content_hash INTEGER,
+                   image_path TEXT,
+                   html BLOB,
+                   files TEXT,
+                   preview TEXT NOT NULL,
+                   pinned INTEGER NOT NULL DEFAULT 0,
+                   use_count INTEGER NOT NULL DEFAULT 0,
+                   created_at INTEGER NOT NULL,
+                   text_path TEXT);
+                 CREATE INDEX idx_clips_pinned ON clips(pinned, created_at);",
+            )
+            .unwrap();
+            upsert_text(&conn, "old history one").unwrap();
+            upsert_text(&conn, "old history two").unwrap();
+        }
+        let conn = open_db(&dir).unwrap();
+        setup_schema(&conn).unwrap();
+
+        // columns exist
+        for col in ["group_id", "group_order"] {
+            let mut stmt = conn.prepare("PRAGMA table_info(clips)").unwrap();
+            let rows = stmt.query_map([], |r| r.get::<_, String>(1)).unwrap();
+            let has = rows.flatten().any(|c| c == col);
+            assert!(has, "column {col} must exist after migration");
+        }
+        // clip_groups table exists and is empty
+        let groups: i64 = conn
+            .query_row("SELECT count(*) FROM clip_groups", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(groups, 0);
+        // every old row survived, readable, and ungrouped
+        let clips = list(&conn, "all", "").unwrap();
+        assert_eq!(clips.len(), 2, "history preserved across migration");
+        assert!(clips.iter().all(|c| c.group_id.is_none()));
+        assert!(clips
+            .iter()
+            .any(|c| c.content.as_deref() == Some("old history one")));
+        assert_eq!(
+            conn.query_row("PRAGMA quick_check", [], |r| r.get::<_, String>(0))
+                .unwrap(),
+            "ok"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn mem_group_db() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        setup_schema(&conn).unwrap();
+        conn
+    }
+
+    fn gid(conn: &Connection, id: i64) -> Option<i64> {
+        conn.query_row("SELECT group_id FROM clips WHERE id=?1", [id], |r| r.get(0))
+            .unwrap()
+    }
+
+    fn groups(conn: &Connection) -> i64 {
+        conn.query_row("SELECT count(*) FROM clip_groups", [], |r| r.get(0))
+            .unwrap()
+    }
+
+    fn three_texts() -> (Connection, i64, i64, i64) {
+        let conn = mem_group_db();
+        let a = upsert_text(&conn, "alpha").unwrap().unwrap();
+        let b = upsert_text(&conn, "beta").unwrap().unwrap();
+        let c = upsert_text(&conn, "gamma").unwrap().unwrap();
+        (conn, a, b, c)
+    }
+
+    #[test]
+    fn merge_creates_group_from_target_and_appends_source() {
+        let (conn, a, b, _c) = three_texts();
+        merge_clips(&conn, a, b).unwrap();
+        let g = gid(&conn, b).expect("target gains a group");
+        assert_eq!(gid(&conn, a), Some(g));
+        assert_eq!(gid(&conn, _c), None, "unrelated clip stays ungrouped");
+        // group_order: target is 0, source appended at 1
+        let order_a: i64 = conn
+            .query_row("SELECT group_order FROM clips WHERE id=?1", [a], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        let order_b: i64 = conn
+            .query_row("SELECT group_order FROM clips WHERE id=?1", [b], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(order_b, 0);
+        assert_eq!(order_a, 1);
+    }
+
+    #[test]
+    fn split_removes_one_member_and_dissolves_when_below_two() {
+        let (conn, a, b, c) = three_texts();
+        merge_clips(&conn, a, b).unwrap();
+        let g = gid(&conn, b).unwrap();
+        merge_clips(&conn, c, b).unwrap(); // 3 members now
+        split_clip(&conn, a).unwrap();
+        assert_eq!(gid(&conn, a), None);
+        assert_eq!(gid(&conn, b), Some(g), "still 2 members — group survives");
+        assert_eq!(groups(&conn), 1);
+        split_clip(&conn, c).unwrap();
+        // down to 1 member → auto-dissolve
+        assert_eq!(gid(&conn, b), None, "lonely member returns to ungrouped");
+        assert_eq!(groups(&conn), 0, "dangling group must not survive");
+        let b_still: i64 = conn
+            .query_row("SELECT count(*) FROM clips WHERE id=?1", [b], |r| r.get(0))
+            .unwrap();
+        assert_eq!(b_still, 1, "纯逻辑分组: the clip itself is never deleted");
+    }
+
+    #[test]
+    fn ungroup_deletes_the_group_but_keeps_every_clip() {
+        let (conn, a, b, _c) = three_texts();
+        merge_clips(&conn, a, b).unwrap();
+        let g = gid(&conn, b).unwrap();
+        ungroup(&conn, g).unwrap();
+        assert_eq!(groups(&conn), 0);
+        for id in [a, b, _c] {
+            assert_eq!(gid(&conn, id), None);
+            let n: i64 = conn
+                .query_row("SELECT count(*) FROM clips WHERE id=?1", [id], |r| r.get(0))
+                .unwrap();
+            assert_eq!(n, 1, "ungroup must not delete clip {id}");
+        }
+    }
+
+    #[test]
+    fn deleting_a_group_member_auto_dissolves() {
+        let (conn, a, b, _c) = three_texts();
+        merge_clips(&conn, a, b).unwrap();
+        delete(&conn, a).unwrap();
+        assert_eq!(gid(&conn, b), None, "survivor must not dangle");
+        assert_eq!(groups(&conn), 0);
+    }
+
+    #[test]
+    fn enforce_limit_eviction_dissolves_shrunken_groups() {
+        let conn = mem_group_db();
+        let a = upsert_text(&conn, "will be pruned").unwrap().unwrap();
+        let b = upsert_text(&conn, "survivor").unwrap().unwrap();
+        merge_clips(&conn, b, a).unwrap(); // a has the group (target), b joins
+        let g = gid(&conn, a).unwrap();
+        let victims = enforce_limit(&conn, 1).unwrap();
+        assert_eq!(victims.len(), 1);
+        // b survived, group has 1 member → dissolved
+        assert_eq!(gid(&conn, b), None, "group must auto-dissolve after prune");
+        let group_rows: i64 = conn
+            .query_row("SELECT count(*) FROM clip_groups WHERE id=?1", [g], |r| {
+                r.get::<_, i64>(0)
+            })
+            .unwrap();
+        assert_eq!(group_rows, 0);
+    }
+
+    #[test]
+    fn clear_all_also_wipes_group_metadata() {
+        let (conn, a, b, _c) = three_texts();
+        merge_clips(&conn, a, b).unwrap();
+        clear_all(&conn).unwrap();
+        assert_eq!(groups(&conn), 0);
+    }
+
+    #[test]
+    fn reorder_assigns_member_order_and_list_groups_blocks() {
+        let (conn, a, b, c) = three_texts();
+        merge_clips(&conn, a, b).unwrap();
+        merge_clips(&conn, c, b).unwrap();
+        let g = gid(&conn, b).unwrap();
+        // b first, then c, then a
+        reorder_clips(&conn, g, &[b, c, a]).unwrap();
+        let clips = list(&conn, "all", "").unwrap();
+        let ids: Vec<i64> = clips.iter().map(|cl| cl.id).collect();
+        // group block [b, c, a] first (newest member decides block order)
+        assert_eq!(
+            ids,
+            vec![b, c, a],
+            "group members contiguous in group_order"
+        );
+
+        // two groups: order emerges from the one column
+        let d = upsert_text(&conn, "delta").unwrap().unwrap();
+        let e = upsert_text(&conn, "echo").unwrap().unwrap();
+        merge_clips(&conn, e, d).unwrap();
+        let g2 = gid(&conn, d).unwrap();
+        reorder_groups(&conn, &[g2, g]).unwrap();
+        let clips = list(&conn, "all", "").unwrap();
+        let ids: Vec<i64> = clips.iter().map(|cl| cl.id).collect();
+        let pos = |x: i64| ids.iter().position(|&v| v == x).unwrap();
+        assert!(
+            pos(d) < pos(e) && pos(e) < pos(b),
+            "g2 block (reordered first) before g1 block: {ids:?}"
+        );
+    }
+
+    #[test]
+    fn apply_group_order_pure_ungrouped_rows_untouched() {
+        let mk = |id: i64, gidv: Option<i64>, order: Option<i64>, ts: i64| Clip {
+            id,
+            kind: "text".into(),
+            preview: String::new(),
+            image_path: None,
+            content: None,
+            pinned: false,
+            use_count: 1,
+            created_at: ts,
+            text_path: None,
+            group_id: gidv,
+            group_order: order,
+        };
+        let plain = vec![mk(1, None, None, 3), mk(2, None, None, 4)];
+        let out = apply_group_order(plain.clone());
+        assert_eq!(out.iter().map(|c| c.id).collect::<Vec<_>>(), vec![1, 2]);
+        let mixed = vec![
+            mk(9, None, None, 100),
+            mk(3, Some(1), Some(1), 2),
+            mk(2, Some(1), Some(0), 1),
+            mk(6, Some(2), Some(0), 3),
+        ];
+        let out = apply_group_order(mixed);
+        // both blocks min(group_order)==0 → tie → stable discovery order
+        // (group 1 first), ungrouped tail keeps its order
+        assert_eq!(
+            out.iter().map(|c| c.id).collect::<Vec<_>>(),
+            vec![2, 3, 6, 9]
+        );
+        // with explicit group positions (what reorder_groups stamps), block
+        // order follows the smaller min(group_order)
+        let ordered = vec![
+            mk(9, None, None, 100),
+            mk(3, Some(1), Some(1_000_000), 2),
+            mk(2, Some(1), Some(1_000_000 + 1), 1),
+            mk(6, Some(2), Some(0), 3),
+        ];
+        let out = apply_group_order(ordered);
+        assert_eq!(
+            out.iter().map(|c| c.id).collect::<Vec<_>>(),
+            vec![6, 3, 2, 9]
+        );
     }
 }

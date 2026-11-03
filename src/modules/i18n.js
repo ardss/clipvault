@@ -14,6 +14,10 @@ export const messages = {
     focusLost:'已复制到剪贴板，但无法聚焦原窗口，请手动 Ctrl+V', pasteFail:'粘贴失败，内容仍在剪贴板', dayToday:'今天', dayYesterday:'昨天', dayEarlier:'更早',
     demoPasted:'在线演示：实际使用时这里会粘贴到原窗口',
     pin:'置顶', del:'删除', clear:'清除',
+    unpin:'取消置顶', pinPanel:'固定面板（不再自动收起）', unpinPanel:'取消固定', pinnedOn:'面板已固定：失焦不再收起', pinnedOff:'已解除固定',
+    setEdgePeek:'边缘唤出', setEdgePeekHint:'鼠标停靠屏幕左边缘约 0.2 秒唤出面板（隐藏态下左边缘有 3px 可发现条）', setPanelPinned:'固定面板', setPanelPinnedHint:'固定后鼠标离开不自动收起，Alt+V 也不再隐藏，直到取消固定',
+    code:'代码', group:'组', mergeDrop:'松开合并', mergeDone:'已合并为组（非破坏性）', splitDone:'已拆分', ungroup:'整体拆组', ungroupDone:'已整体拆组', undo:'撤销', undoDone:'已撤销',
+    dragOut:'拖出', dragOutFail:'拖出失败或此类型暂不支持（仅文本/链接）', groupItems:'{n} 项组合', groupExpand:'点击展开 · 拖出按钮可拆分', groupCollapse:'点击收起',
   },
   en: {
     all:'All', text:'Text', image:'Image', pinned:'Pinned', link:'Links', file:'Files',
@@ -28,6 +32,10 @@ export const messages = {
     focusLost:'Copied to clipboard, but could not focus the previous window — press Ctrl+V manually', pasteFail:'Paste failed, content stays on clipboard', dayToday:'Today', dayYesterday:'Yesterday', dayEarlier:'Earlier',
     demoPasted:'Demo: the real app pastes this into your previous window',
     pin:'Pin', del:'Delete', clear:'Clear',
+    unpin:'Unpin', pinPanel:'Pin panel (no auto-collapse)', unpinPanel:'Unpin panel', pinnedOn:'Panel pinned — it stays open on blur', pinnedOff:'Panel unpinned',
+    setEdgePeek:'Edge summon', setEdgePeekHint:'Rest the cursor on the left screen edge ~0.2s to summon the panel (a 3px discoverable strip marks the edge while hidden)', setPanelPinned:'Pin panel', setPanelPinnedHint:'A pinned panel never auto-collapses and Alt+V won’t hide it until unpinned',
+    code:'Code', group:'Group', mergeDrop:'Release to merge', mergeDone:'Merged into a group (non-destructive)', splitDone:'Split out', ungroup:'Ungroup', ungroupDone:'Group dissolved', undo:'Undo', undoDone:'Undone',
+    dragOut:'Drag out', dragOutFail:'Drag out failed or unsupported for this kind (text/links only)', groupItems:'{n}-item group', groupExpand:'Click to expand · out button splits', groupCollapse:'Click to collapse',
   },
   ja: {
     all:'すべて', text:'テキスト', image:'画像', pinned:'固定', link:'リンク', file:'ファイル',
@@ -42,6 +50,10 @@ export const messages = {
     focusLost:'クリップボードにコピーしましたが、元のウィンドウにフォーカスできません。手動で Ctrl+V を押してください', pasteFail:'貼り付け失敗。内容はクリップボードに残っています', dayToday:'今日', dayYesterday:'昨日', dayEarlier:'それ以前',
     demoPasted:'デモ: 実際のアプリでは直前のウィンドウに貼り付きます',
     pin:'固定', del:'削除', clear:'クリア',
+    unpin:'固定解除', pinPanel:'パネルを固定（自動収納オフ）', unpinPanel:'固定を解除', pinnedOn:'パネルを固定しました：フォーカスが外れても収納しません', pinnedOff:'固定を解除しました',
+    setEdgePeek:'エッジ呼び出し', setEdgePeekHint:'画面左端にカーソルを約 0.2 秒停めるとパネルが出現します（非表示時は左端に 3px の目印）', setPanelPinned:'パネルを固定', setPanelPinnedHint:'固定中はマウスを離しても収納されず、Alt+V でも隠れません',
+    code:'コード', group:'グループ', mergeDrop:'離してマージ', mergeDone:'グループにまとめました（非破壊）', splitDone:'取り出しました', ungroup:'グループ解除', ungroupDone:'グループを解除しました', undo:'元に戻す', undoDone:'元に戻しました',
+    dragOut:'取り出す', dragOutFail:'ドラッグアウトに失敗したか、この種類は未対応です（テキスト/リンクのみ）', groupItems:'{n} 件のグループ', groupExpand:'クリックで展開 · 取り出しボタンで分割', groupCollapse:'クリックで折りたたみ',
   },
   ko: {
     all:'전체', text:'텍스트', image:'이미지', pinned:'고정', link:'링크', file:'파일',
@@ -56,6 +68,10 @@ export const messages = {
     focusLost:'클립보드에 복사했지만 이전 창에 포커스를 줄 수 없습니다. 직접 Ctrl+V를 누르세요', pasteFail:'붙여넣기 실패, 내용은 클립보드에 남아 있습니다', dayToday:'오늘', dayYesterday:'어제', dayEarlier:'이전',
     demoPasted:'데모: 실제 앱에서는 이전 창으로 붙여넣어집니다',
     pin:'고정', del:'삭제', clear:'지우기',
+    unpin:'고정 해제', pinPanel:'패널 고정(자동 숨김 끔)', unpinPanel:'고정 해제', pinnedOn:'패널이 고정되었습니다: 포커스를 잃어도 숨겨지지 않습니다', pinnedOff:'고정을 해제했습니다',
+    setEdgePeek:'가장자리 호출', setEdgePeekHint:'커서를 화면 왼쪽 가장자리에 약 0.2초 두면 패널이 나타납니다(숨김 상태에서 왼쪽 가장자리에 3px 표시)', setPanelPinned:'패널 고정', setPanelPinnedHint:'고정 중에는 마우스가 떠나도 숨겨지지 않고 Alt+V로도 숨겨지지 않습니다',
+    code:'코드', group:'그룹', mergeDrop:'놓아서 병합', mergeDone:'그룹으로 합쳤습니다(비파괴)', splitDone:'분리했습니다', ungroup:'그룹 해제', ungroupDone:'그룹을 해제했습니다', undo:'실행 취소', undoDone:'실행 취소했습니다',
+    dragOut:'끌어내기', dragOutFail:'끌어내기 실패 또는 이 종류는 미지원입니다(텍스트/링크만)', groupItems:'{n}개 항목 그룹', groupExpand:'클릭하여 펼치기 · 내보내기 버튼으로 분리', groupCollapse:'클릭하여 접기',
   },
   es: {
     all:'Todo', text:'Texto', image:'Imagen', pinned:'Fijado', link:'Enlaces', file:'Archivos',
@@ -70,6 +86,10 @@ export const messages = {
     focusLost:'Copiado al portapapeles, pero no se pudo enfocar la ventana anterior: pulsa Ctrl+V manualmente', pasteFail:'Error al pegar; el contenido sigue en el portapapeles', dayToday:'Hoy', dayYesterday:'Ayer', dayEarlier:'Antes',
     demoPasted:'Demo: la app real pega esto en tu ventana anterior',
     pin:'Fijar', del:'Eliminar', clear:'Limpiar',
+    unpin:'Quitar fijación', pinPanel:'Fijar panel (sin autoocultar)', unpinPanel:'Desfijar panel', pinnedOn:'Panel fijado: permanece abierto al perder el foco', pinnedOff:'Panel desfijado',
+    setEdgePeek:'Invocación por borde', setEdgePeekHint:'Deja el cursor en el borde izquierdo ~0,2 s para invocar el panel (una franja de 3 px marca el borde mientras está oculto)', setPanelPinned:'Fijar panel', setPanelPinnedHint:'Un panel fijado nunca se autooculta y Alt+V no lo esconde hasta quitar la fijación',
+    code:'Código', group:'Grupo', mergeDrop:'Suelta para combinar', mergeDone:'Combinado en un grupo (no destructivo)', splitDone:'Separado', ungroup:'Desagrupar', ungroupDone:'Grupo disuelto', undo:'Deshacer', undoDone:'Deshecho',
+    dragOut:'Arrastrar fuera', dragOutFail:'Fallo al arrastrar fuera o tipo no admitido (solo texto/enlaces)', groupItems:'grupo de {n} elementos', groupExpand:'Clic para expandir · el botón de sacar separa', groupCollapse:'Clic para plegar',
   },
   fr: {
     all:'Tout', text:'Texte', image:'Image', pinned:'Épinglé', link:'Liens', file:'Fichiers',
@@ -84,6 +104,10 @@ export const messages = {
     focusLost:'Copié dans le presse-papiers, mais impossible de refocaliser la fenêtre précédente — faites Ctrl+V manuellement', pasteFail:'Échec du collage ; le contenu reste dans le presse-papiers', dayToday:'Aujourd’hui', dayYesterday:'Hier', dayEarlier:'Avant',
     demoPasted:'Démo : la vraie app colle cela dans votre fenêtre précédente',
     pin:'Épingler', del:'Supprimer', clear:'Effacer',
+    unpin:'Désépingler', pinPanel:'Épingler le panneau (pas de masquage auto)', unpinPanel:'Désépingler le panneau', pinnedOn:'Panneau épinglé — il reste ouvert au blur', pinnedOff:'Panneau désépinglé',
+    setEdgePeek:'Appel par le bord', setEdgePeekHint:'Laissez le curseur sur le bord gauche ~0,2 s pour appeler le panneau (une bande de 3 px marque le bord quand il est masqué)', setPanelPinned:'Épingler le panneau', setPanelPinnedHint:'Un panneau épinglé ne se masque jamais tout seul et Alt+V ne le cache plus tant qu’il est épinglé',
+    code:'Code', group:'Groupe', mergeDrop:'Relâcher pour fusionner', mergeDone:'Fusionné en groupe (non destructif)', splitDone:'Extrait', ungroup:'Dissoudre le groupe', ungroupDone:'Groupe dissous', undo:'Annuler', undoDone:'Annulé',
+    dragOut:'Extraire', dragOutFail:'Échec de l’extraction ou type non pris en charge (texte/liens uniquement)', groupItems:'groupe de {n} éléments', groupExpand:'Clic pour déplier · le bouton d’extraction sépare', groupCollapse:'Clic pour replier',
   },
   de: {
     all:'Alle', text:'Text', image:'Bild', pinned:'Angeheftet', link:'Links', file:'Dateien',
@@ -98,6 +122,10 @@ export const messages = {
     focusLost:'In die Zwischenablage kopiert, aber das vorherige Fenster konnte nicht fokussiert werden — bitte manuell Strg+V drücken', pasteFail:'Einfügen fehlgeschlagen; der Inhalt bleibt in der Zwischenablage', dayToday:'Heute', dayYesterday:'Gestern', dayEarlier:'Früher',
     demoPasted:'Demo: Die echte App fügt dies in dein vorheriges Fenster ein',
     pin:'Anheften', del:'Löschen', clear:'Leeren',
+    unpin:'Loslösen', pinPanel:'Panel anheften (kein Auto-Ausblenden)', unpinPanel:'Panel loslösen', pinnedOn:'Panel angeheftet — bleibt beim Fokusverlust offen', pinnedOff:'Panel gelöst',
+    setEdgePeek:'Kanten-Aufruf', setEdgePeekHint:'Cursor ~0,2 s an den linken Bildschirmrand halten, um das Panel aufzurufen (im verborgenen Zustand markiert ein 3-px-Streifen die Kante)', setPanelPinned:'Panel anheften', setPanelPinnedHint:'Ein angeheftetes Panel blendet nie automatisch aus und Alt+V versteckt es erst nach dem Lösen nicht mehr',
+    code:'Code', group:'Gruppe', mergeDrop:'Loslassen zum Zusammenführen', mergeDone:'Zu einer Gruppe zusammengeführt (nicht-destruktiv)', splitDone:'Herausgelöst', ungroup:'Gruppe auflösen', ungroupDone:'Gruppe aufgelöst', undo:'Rückgängig', undoDone:'Rückgängig gemacht',
+    dragOut:'Herausziehen', dragOutFail:'Herausziehen fehlgeschlagen oder für diese Art nicht unterstützt (nur Text/Links)', groupItems:'Gruppe mit {n} Einträgen', groupExpand:'Klicken zum Aufklappen · Herausziehen-Button trennt', groupCollapse:'Klicken zum Einklappen',
   },
 
 }

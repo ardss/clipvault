@@ -15,6 +15,14 @@
   --danger: #c2414f;
   --danger-ink: #ffffff;
   --radius: 5px;
+  /* 0.2 glass surfaces (prototype cv02-prototype.html, light variant) */
+  --glass: rgba(255, 255, 255, .86);
+  --glass-2: rgba(0, 0, 0, .045);
+  --glass-border: rgba(0, 0, 0, .09);
+  --glass-hover: rgba(0, 103, 192, .09);
+  --glass-accent-ink: #0067c0;
+  /* unified spring motion (prototype: all panel/card transitions) */
+  --spring: cubic-bezier(.32, .9, .35, 1.12);
 }
 :root[data-theme='dark'] {
   color-scheme: dark;
@@ -29,6 +37,12 @@
   --hl: #e3c53e;
   --border: #26282e;
   --danger: #e5737f;
+  /* 0.2 glass surfaces (prototype dark variant) */
+  --glass: rgba(22, 26, 32, .82);
+  --glass-2: rgba(255, 255, 255, .055);
+  --glass-border: rgba(255, 255, 255, .09);
+  --glass-hover: rgba(90, 162, 232, .09);
+  --glass-accent-ink: #9cc8f5;
 }
 * { box-sizing: border-box; user-select: none; }
 html, body, #app { height: 100%; margin: 0; overflow: hidden; }
@@ -42,3 +56,8 @@ body {
 
 /* keep placeholder text at AA contrast in both themes */
 ::placeholder { color: var(--fg-dim); opacity: 1; }
+
+/* respect reduced motion globally: every spring transition collapses */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; }
+}

@@ -34,6 +34,19 @@ describe('i18n key completeness', () => {
     }
   })
 
+  it('0.2 keys (pin panel / edge summon / grouping / undo) exist in all 7 languages', () => {
+    const v02 = ['unpin', 'pinPanel', 'unpinPanel', 'pinnedOn', 'pinnedOff',
+      'setEdgePeek', 'setEdgePeekHint', 'setPanelPinned', 'setPanelPinnedHint',
+      'code', 'group', 'mergeDrop', 'mergeDone', 'splitDone', 'ungroup', 'ungroupDone',
+      'undo', 'undoDone', 'dragOut', 'dragOutFail', 'groupItems', 'groupExpand', 'groupCollapse']
+    for (const lang of langs) {
+      for (const k of v02) {
+        expect(messages[lang][k], `${lang}.${k}`).toBeDefined()
+        expect(String(messages[lang][k]).length, `${lang}.${k}`).toBeGreaterThan(0)
+      }
+    }
+  })
+
   it('translate falls back to the key itself for unknown keys (old behavior)', () => {
     expect(translate('zh', 'nonexistent_key')).toBe('nonexistent_key')
     expect(translate('en', 'dayToday')).toBe('Today')

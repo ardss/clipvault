@@ -1,5 +1,19 @@
 # Changelog
 
+
+## [0.2.0] - 2026-11-03
+
+### Added
+- 边缘三态托盘：隐藏态（左缘 3px 可发现热区，鼠标穿透）/ 展开 / 固定，热区宽度与收起延迟可配置，搜索与拖拽期间不自动收起
+- 原生 OLE 拖出（DoDragDrop/IDataObject/IDropSource，专用 STA 线程）：卡片可直接拖进记事本、资源管理器等真实 Windows 应用
+- 卡片合并/堆叠/空间分组：拖 A 到 B 驻留合并，非破坏性逻辑分组（clip_groups 表），可展开/拖出拆分/整体拆组，带撤销
+
+### Changed
+- UI 重构为玻璃质感深/浅双主题，统一 spring 动效（尊重 prefers-reduced-motion）
+- 面板窗口支持置顶与固定
+
+### 保留
+- 0.1 全部功能：7 语言 UI、字体四档、敏感词过滤开关、暂停采集、托盘菜单、清空确认弹窗；旧 SQLite 数据无损迁移
 All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),

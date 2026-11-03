@@ -318,3 +318,156 @@ fn show_panel_cmd_is_a_signature_probe() {
     let show_panel_cmd: fn(tauri::AppHandle<tauri::Wry>) = app_lib::__probe_show_panel_cmd_sig;
     let _ = show_panel_cmd; // compile-time: the registered signature is intact
 }
+
+// ------------------------------------------------- 0.2 additions (drag-out + grouping) ---
+
+#[test]
+fn set_auto_hide_suppressed_round_trips() {
+    let app = ipc_test_app();
+    let w = webview(&app);
+    // pure atomic flip, no system side effects
+    invoke_ok(&w, "set_auto_hide_suppressed", json!({ "on": true }));
+    invoke_ok(&w, "set_auto_hide_suppressed", json!({ "on": false }));
+}
+
+#[test]
+fn set_panel_pinned_round_trips() {
+    let app = ipc_test_app();
+    let w = webview(&app);
+    invoke_ok(&w, "set_panel_pinned", json!({ "on": true }));
+    invoke_ok(&w, "set_panel_pinned", json!({ "on": false }));
+}
+
+#[test]
+fn start_drag_out_unknown_id_fails_before_any_system_side_effect() {
+    // SIDE-EFFECT GATING: the happy path runs a real OLE DoDragDrop session —
+    // never in CI. With an unknown id the command returns Err at the FIRST
+    // step (db::get_clip) before any drag thread starts; that error branch is
+    // the contract asserted here. The full drag chain is proven by the L4
+    // probe layer behind CV_E2E_ISOLATED.
+    let app = ipc_test_app();
+    let w = webview(&app);
+    let err = invoke_err(&w, "start_drag_out", json!({ "id": 424242 }));
+    assert!(
+        !err.is_empty(),
+        "unknown clip id must fail loudly before touching OLE"
+    );
+}
+
+#[test]
+fn merge_split_ungroup_round_trip_preserves_all_rows() {
+    let app = ipc_test_app();
+    seed_text(&app, 10, "alpha");
+    seed_text(&app, 11, "beta");
+    seed_text(&app, 12, "gamma");
+    let w = webview(&app);
+    // merge 10 into 11 → one group of 2
+    invoke_ok(&w, "merge_clips", json!({ "sourceId": 10, "targetId": 11 }));
+    {
+        let db = app_lib::ipc_test_db(&app);
+        let (g11, g10): (Option<i64>, Option<i64>) = {
+            let mut stmt = db
+                .prepare("SELECT group_id FROM clips WHERE id=?1")
+                .unwrap();
+            (
+                stmt.query_row([11], |r| r.get(0)).unwrap(),
+                stmt.query_row([10], |r| r.get(0)).unwrap(),
+            )
+        };
+        assert_eq!(g10, g11, "both clips share one group");
+        assert!(g11.is_some());
+    }
+    // split 10 out → group auto-dissolves (1 member left)
+    invoke_ok(&w, "split_clip", json!({ "id": 10 }));
+    {
+        let db = app_lib::ipc_test_db(&app);
+        let members: i64 = db
+            .query_row(
+                "SELECT count(*) FROM clips WHERE group_id IS NOT NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let groups: i64 = db
+            .query_row("SELECT count(*) FROM clip_groups", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!((members, groups), (0, 0), "auto-dissolve after split");
+        let n: i64 = db
+            .query_row("SELECT count(*) FROM clips", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 3, "纯逻辑分组: no clip row is ever deleted");
+    }
+    // rebuild the group and ungroup explicitly
+    invoke_ok(&w, "merge_clips", json!({ "sourceId": 10, "targetId": 11 }));
+    invoke_ok(&w, "merge_clips", json!({ "sourceId": 12, "targetId": 11 }));
+    let g: i64 = {
+        let db = app_lib::ipc_test_db(&app);
+        db.query_row("SELECT group_id FROM clips WHERE id=11", [], |r| r.get(0))
+            .unwrap()
+    }; // guard dropped BEFORE the invoke: ungroup takes the same db mutex
+    invoke_ok(&w, "ungroup", json!({ "groupId": g }));
+    {
+        let db = app_lib::ipc_test_db(&app);
+        let groups: i64 = db
+            .query_row("SELECT count(*) FROM clip_groups", [], |r| r.get(0))
+            .unwrap();
+        let n: i64 = db
+            .query_row("SELECT count(*) FROM clips", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(
+            (groups, n),
+            (0, 3),
+            "ungroup deletes the group, keeps every clip"
+        );
+    }
+}
+
+#[test]
+fn merge_into_missing_target_is_a_loud_err() {
+    let app = ipc_test_app();
+    seed_text(&app, 20, "solo");
+    let w = webview(&app);
+    let err = invoke_err(
+        &w,
+        "merge_clips",
+        json!({ "sourceId": 20, "targetId": 999 }),
+    );
+    assert!(
+        err.contains("target clip 999 missing"),
+        "must fail loudly on a missing target, got: {err}"
+    );
+}
+
+#[test]
+fn reorder_groups_and_clips_round_trip() {
+    let app = ipc_test_app();
+    seed_text(&app, 30, "a30");
+    seed_text(&app, 31, "a31");
+    seed_text(&app, 32, "a32");
+    let w = webview(&app);
+    invoke_ok(&w, "merge_clips", json!({ "sourceId": 30, "targetId": 31 }));
+    let g: i64 = app_lib::ipc_test_db(&app)
+        .query_row("SELECT group_id FROM clips WHERE id=31", [], |r| r.get(0))
+        .unwrap();
+    invoke_ok(
+        &w,
+        "reorder_clips",
+        json!({ "groupId": g, "ids": [31, 30] }),
+    );
+    invoke_ok(&w, "reorder_groups", json!({ "ids": [g] }));
+    let (o31, o30): (i64, i64) = {
+        let db = app_lib::ipc_test_db(&app);
+        let o31 = db
+            .query_row("SELECT group_order FROM clips WHERE id=31", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        let o30 = db
+            .query_row("SELECT group_order FROM clips WHERE id=30", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        (o31, o30)
+    };
+    assert!(o31 < o30, "reorder_clips must apply the requested order");
+}
