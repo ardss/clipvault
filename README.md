@@ -1,5 +1,13 @@
 # ClipVault
 
+> [!WARNING]
+> **⛔ 本项目已停止维护（2026-11-04）** / **This project is no longer maintained (2026-11-04).**
+> 我们已迁移到新的剪贴板项目，ClipVault 不再接收任何更新、修复或发布。
+> We have moved on to a new clipboard project; ClipVault receives no further updates, fixes, or releases.
+> 未发布的实验分支见 `dev/0.2-edge-tray`（未经验收，请勿使用）。
+> The unreleased experimental branch lives at `dev/0.2-edge-tray` (unaccepted, do not use).
+
+
 [![Release](https://img.shields.io/github/v/release/ardss/clipvault)](../../releases)
 [![CI](https://img.shields.io/github/actions/workflow/status/ardss/clipvault/ci.yml?label=CI)](../../actions/workflows/ci.yml)
 [![License](https://img.shields.io/github/license/ardss/clipvault)](LICENSE)
