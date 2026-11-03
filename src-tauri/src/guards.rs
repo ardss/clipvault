@@ -12,6 +12,25 @@ mod guard_tests {
     const ROOT_CARGO: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../Cargo.toml"));
     const CRATE_CARGO: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml"));
 
+    /// 0.2.0 incident: the WM_MOUSEMOVE auto-hide branch flagged "left the
+    /// panel" for a cursor parked inside an edge-probe strip — the probe
+    /// re-summoned, the auto-hide re-hid, and the panel flickered forever.
+    /// The hook branch must consult edge::cursor_in_edge_strip.
+    #[test]
+    fn mouse_leave_autohide_must_exempt_edge_strip() {
+        let start = WIN_MOD
+            .find("WM_MOUSEMOVE => {")
+            .expect("WM_MOUSEMOVE branch missing from win/mod.rs mouse_proc");
+        let end = WIN_MOD[start..]
+            .find("MOUSE_HOOK_DESIRED")
+            .expect("mouse_proc region delimiter missing");
+        let region = &WIN_MOD[start..start + end];
+        assert!(
+            region.contains("cursor_in_edge_strip"),
+            "the mouse-leave auto-hide branch no longer exempts edge-probe              strips — a cursor parked at the summon edge will fight the probe              re-summon and flicker the panel (0.2.0 incident)."
+        );
+    }
+
     /// TESTING.md §3-2: the low-level hook callback must never do file I/O —
     /// the system holds every mouse event until it returns, so any I/O there
     /// stalls the whole system's input queue. Scans the `mouse_proc` callback

@@ -233,7 +233,13 @@ unsafe extern "system" fn mouse_proc(n_code: i32, w_param: WPARAM, l_param: LPAR
         let p = *(l_param.0 as *const MSLLHOOKSTRUCT);
         match w_param.0 as u32 {
             WM_LBUTTONDOWN => {
-                if PANEL_VISIBLE.load(Ordering::SeqCst) && !point_in_panel(p.pt.x, p.pt.y) {
+                // edge-strip parked cursors are summon intent, not dismissal:
+                // exempting them here stopped the second half of the 0.2.1
+                // flicker loop (click at the summon edge → hide → re-summon)
+                if PANEL_VISIBLE.load(Ordering::SeqCst)
+                    && !point_in_panel(p.pt.x, p.pt.y)
+                    && !edge::cursor_in_edge_strip(p.pt.x, p.pt.y)
+                {
                     // flag only — the main thread polls and hides (hiding from the hook
                     // thread risks deadlock)
                     OUTSIDE_CLICK.store(true, Ordering::SeqCst);
@@ -241,11 +247,16 @@ unsafe extern "system" fn mouse_proc(n_code: i32, w_param: WPARAM, l_param: LPAR
             }
             WM_MOUSEMOVE => {
                 // expanded AND the cursor left panel(+8px): flag it; the worker
-                // thread hides (pinned / suppressed panels never auto-hide)
+                // thread hides (pinned / suppressed panels never auto-hide).
+                // A cursor parked inside an edge-probe strip NEVER counts as
+                // "left": that is the user standing at the summon edge — the
+                // 0.2.0 flicker loop was exactly this branch fighting the
+                // edge-probe re-summon.
                 if PANEL_VISIBLE.load(Ordering::SeqCst)
                     && !PANEL_PINNED.load(Ordering::SeqCst)
                     && !AUTO_HIDE_SUPPRESSED.load(Ordering::SeqCst)
                     && !point_near_panel(p.pt.x, p.pt.y, 8)
+                    && !edge::cursor_in_edge_strip(p.pt.x, p.pt.y)
                 {
                     MOUSE_LEFT_PANEL.store(true, Ordering::SeqCst);
                 }

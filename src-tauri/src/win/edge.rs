@@ -164,9 +164,20 @@ fn destroy_probes() {
 }
 
 fn rebuild_probes(class: PCWSTR) {
+    // Only tear down / recreate when the monitor set actually changed: an
+    // unconditional periodic rebuild churns TOPMOST z-order every ~3s and
+    // made the whole desktop flicker (0.2.0 incident, alongside the
+    // auto-hide fight).
+    let rects = monitor_rects();
+    {
+        let probes = PROBES.lock().unwrap_or_else(|p| p.into_inner());
+        if probes.len() == rects.len() && probes.iter().zip(&rects).all(|(p, r)| p.rect == *r) {
+            return;
+        }
+    }
     destroy_probes();
     let mut probes = PROBES.lock().unwrap_or_else(|p| p.into_inner());
-    for rect in monitor_rects() {
+    for rect in rects {
         if let Some(hwnd) = unsafe { create_probe(class, rect) } {
             probes.push(ProbeWindow { hwnd, rect });
         }
@@ -178,6 +189,14 @@ fn cursor_inside_a_probe(x: i32, y: i32) -> bool {
     probes.iter().any(|p| {
         x >= p.rect.0 && x < p.rect.0 + p.rect.2 && y >= p.rect.1 && y < p.rect.1 + p.rect.3
     })
+}
+
+/// Hook-thread-facing guard: is this physical point inside a live probe
+/// strip? The mouse-leave auto-hide branch consults this so a cursor parked
+/// at the summon edge never flags "left the panel" (the 0.2.0 flicker loop
+/// was exactly that branch fighting the edge-probe re-summon).
+pub fn cursor_in_edge_strip(x: i32, y: i32) -> bool {
+    EDGE_PEEK_ENABLED.load(Ordering::SeqCst) && cursor_inside_a_probe(x, y)
 }
 
 /// The probe thread body: owns the probe windows, pumps messages, polls the

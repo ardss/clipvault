@@ -630,6 +630,11 @@ pub fn spawn_zoom_watchdog(app: tauri::AppHandle<tauri::Wry>) {
             // itself risks deadlock — here we are a plain worker thread.
             // Checked EVERY iteration: blocking sleeps must not delay the hide.
             if OUTSIDE_CLICK.swap(false, Ordering::SeqCst) {
+                cvlog!(
+                    "[cv] outside-click hide: cursor={:?} panel_rect={:?}",
+                    get_cursor_pos(),
+                    panel_rect_now()
+                );
                 crate::commands::hide_panel(&app);
             }
             // mouse-leave auto-hide (flag from the WM_MOUSEMOVE hook branch):
@@ -642,8 +647,15 @@ pub fn spawn_zoom_watchdog(app: tauri::AppHandle<tauri::Wry>) {
             {
                 let (x, y) = get_cursor_pos();
                 // require the cursor to STILL be outside the +8px band: the
-                // flag can be stale by one tick (cursor re-entered in between)
-                if !point_near_panel(x, y, 8) {
+                // flag can be stale by one tick (cursor re-entered in between).
+                // Edge-strip parked cursors never hide (summon intent, see
+                // mouse_proc) — and log the geometry so any residual hide
+                // loop is diagnosable from cv.log alone.
+                if !point_near_panel(x, y, 8) && !super::edge::cursor_in_edge_strip(x, y) {
+                    cvlog!(
+                        "[cv] auto-hide: cursor=({x},{y}) panel_rect={:?}",
+                        panel_rect_now()
+                    );
                     crate::commands::hide_panel(&app);
                 }
             }
